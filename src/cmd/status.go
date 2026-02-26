@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
@@ -19,6 +20,7 @@ var statusCmd = &cobra.Command{
 }
 
 func init() {
+	statusCmd.Flags().Bool("fetch", false, "Fetch remote updates for the Hub repo before showing status")
 	rootCmd.AddCommand(statusCmd)
 }
 
@@ -131,6 +133,58 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		printWarn("", "git not available — skipping Hub Git status.")
 		return nil
 	}
+
+	fetchFirst, _ := cmd.Flags().GetBool("fetch")
+	if fetchFirst {
+		// Require a configured origin remote for fetch-based checks.
+		if _, originErr := exec.Command("git", "-C", cfg.RepoPath, "remote", "get-url", "origin").Output(); originErr != nil {
+			return fmt.Errorf("no remote 'origin' configured for Hub repo: %s", cfg.RepoPath)
+		}
+
+		printInfo("", "Fetching remote updates (origin)...")
+		fetchOut, fetchErr := exec.Command("git", "-C", cfg.RepoPath, "fetch", "--prune", "origin").CombinedOutput()
+		if fetchErr != nil {
+			trimmed := strings.TrimSpace(string(fetchOut))
+			if trimmed == "" {
+				return fmt.Errorf("git fetch failed: %w", fetchErr)
+			}
+			return fmt.Errorf("git fetch failed:\n%s", trimmed)
+		}
+		printOK("", "Fetch complete.")
+	}
+
+	// Remote update summary (origin-based only).
+	// We intentionally do not rely on Git's upstream tracking configuration (@{u}).
+	originHead, originHeadErr := exec.Command("git", "-C", cfg.RepoPath, "rev-parse", "--abbrev-ref", "origin/HEAD").Output()
+	if originHeadErr != nil {
+		if fetchFirst {
+			printWarn("", "Remote default branch not available (origin/HEAD). Re-run 'axon remote set <url>' to initialize the remote default branch reference.")
+		}
+	} else {
+		compareRef := strings.TrimSpace(string(originHead))
+		countsRaw, countsErr := exec.Command("git", "-C", cfg.RepoPath, "rev-list", "--left-right", "--count", "HEAD..."+compareRef).Output()
+		if countsErr == nil {
+			fields := strings.Fields(strings.TrimSpace(string(countsRaw)))
+			if len(fields) >= 2 {
+				ahead, aErr := strconv.Atoi(fields[0])
+				behind, bErr := strconv.Atoi(fields[1])
+				if aErr == nil && bErr == nil {
+					printOK("", fmt.Sprintf("Remote: %s (ahead %d / behind %d)", compareRef, ahead, behind))
+					if behind > 0 {
+						printInfo("", fmt.Sprintf("Remote is newer by %d commit(s). Run 'axon sync' to pull updates.", behind))
+					}
+					if ahead > 0 {
+						if cfg.SyncMode == "read-only" {
+							printWarn("", fmt.Sprintf("Local is newer by %d commit(s), but sync_mode is read-only so changes will not be pushed.", ahead))
+						} else {
+							printInfo("", fmt.Sprintf("Local is newer by %d commit(s). Run 'axon sync' to publish your changes.", ahead))
+						}
+					}
+				}
+			}
+		}
+	}
+
 	out, err := exec.Command("git", "-C", cfg.RepoPath, "-c", "advice.statusHints=false", "status").Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

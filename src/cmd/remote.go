@@ -64,6 +64,15 @@ func runRemoteSet(cmd *cobra.Command, args []string) error {
 		printOK("", fmt.Sprintf("Remote origin updated: %s → %s", existing, url))
 	}
 
+	// Best-effort: fetch origin and set origin/HEAD to the remote's default branch.
+	// This improves UX for commands that rely on origin/HEAD (e.g. status --fetch).
+	if out, err := gitOutput(repo, "fetch", "--prune", "origin"); err != nil {
+		printWarn("", fmt.Sprintf("git fetch origin failed; remote default branch may be unknown:\n%s", strings.TrimSpace(out)))
+	}
+	if err := gitRun("-C", repo, "remote", "set-head", "origin", "-a"); err != nil {
+		printWarn("", "could not set origin/HEAD automatically; remote default branch may be unknown")
+	}
+
 	printInfo("", "Run 'axon sync' to push local content to the remote.")
 	return nil
 }

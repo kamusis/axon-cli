@@ -52,9 +52,17 @@ axon sync
 | `axon unlink [name\|all]` | Remove symlinks; restore backups if available         |
 | `axon sync`               | Commit → pull → push (or pull-only in read-only mode) |
 | `axon remote set <url>`   | Set or update the Hub's git remote origin URL         |
-| `axon status`             | Validate symlinks + show Hub git status               |
+| `axon status [--fetch]`   | Validate symlinks + show Hub git status               |
 | `axon doctor`             | Pre-flight environment check                          |
 | `axon inspect <skill>`    | Show metadata and structure of a skill                |
+
+### `axon status --fetch`
+
+`axon status` shows symlink health and the Hub repo's local git status.
+
+Add `--fetch` to also fetch `origin` and show whether your local Hub branch is ahead/behind the remote default branch. If the remote is newer, run `axon sync` to pull updates.
+
+If `origin/HEAD` is missing, re-run `axon remote set <url>` to initialize the remote default branch reference.
 
 ### `axon init` — Three Modes
 
@@ -78,6 +86,8 @@ Configured via `sync_mode` in `~/.axon/axon.yaml`:
 - **`read-only`**: `git pull --ff-only` only; warns if local edits exist
 
 Axon-layer exclude patterns (from `excludes:` in `axon.yaml`) are written to `.git/info/exclude` before every sync — junk files can never reach a commit even without a `.gitignore`.
+
+To prevent cross-platform CRLF/LF churn, `axon init` also writes a default `.gitattributes` into the Hub repo (if missing): `* text=auto eol=lf`.
 
 **Embedded `.git` auto-strip:** Skills downloaded via `git clone` often contain their own `.git` directory. Axon automatically detects and removes nested `.git` dirs before each `git add` so skills are committed as regular content, not as unresolvable submodules. Original skill files are never touched — only the `.git` metadata folder is stripped.
 

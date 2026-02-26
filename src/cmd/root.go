@@ -12,6 +12,7 @@ var rootCmd = &cobra.Command{
 	Use:          "axon",
 	Short:        "Axon CLI — Hub-and-Spoke skill manager for AI editors",
 	SilenceUsage: true, // don't print usage on operational errors
+	SilenceErrors: true, // we'll print errors once in Execute()
 	Long: `Axon keeps your AI-editor skills and workflows in sync across machines
 using a central Git-backed Hub at ~/.axon/repo/.`,
 }
@@ -29,7 +30,7 @@ func checkGitAvailable() error {
 // Execute is called by main.go.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }

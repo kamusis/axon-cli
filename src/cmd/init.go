@@ -22,6 +22,11 @@ Thumbs.db
 .vscode/
 `
 
+// defaultGitattributes normalizes text file line endings across platforms.
+// This prevents cross-platform CRLF/LF churn when syncing the Hub between Windows and Linux.
+const defaultGitattributes = `* text=auto eol=lf
+`
+
 var initCmd = &cobra.Command{
 	Use:   "init [repo-url]",
 	Short: "Bootstrap the Axon Hub and import existing skills",
@@ -128,6 +133,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("cannot write .gitignore: %w", err)
 		}
 		printOK("", fmt.Sprintf(".gitignore written: %s", gitignorePath))
+	}
+
+	// ── 6b. Write default .gitattributes (newline normalization) ──────────────
+	gitattributesPath := filepath.Join(repoPath, ".gitattributes")
+	if _, err := os.Stat(gitattributesPath); os.IsNotExist(err) {
+		if err := os.WriteFile(gitattributesPath, []byte(defaultGitattributes), 0o644); err != nil {
+			return fmt.Errorf("cannot write .gitattributes: %w", err)
+		}
+		printOK("", fmt.Sprintf(".gitattributes written: %s", gitattributesPath))
 	}
 
 	// ── 7. Import existing skills (Modes A & B only) ──────────────────────────
@@ -327,5 +341,15 @@ func setupHubWithRemote(repoPath, remote string) (clonedFromRemote bool, err err
 	}
 	_ = gitRun("-C", repoPath, "remote", "add", "origin", remote)
 	printOK("", fmt.Sprintf("Remote origin set: %s", remote))
+
+	// Best-effort: fetch origin and set origin/HEAD to the remote's default branch.
+	// This helps commands like `axon status --fetch` rely on origin/HEAD without guesswork.
+	if out, err := gitOutput(repoPath, "fetch", "--prune", "origin"); err != nil {
+		printWarn("", fmt.Sprintf("git fetch origin failed; remote default branch may be unknown:\n%s", strings.TrimSpace(out)))
+	}
+	if err := gitRun("-C", repoPath, "remote", "set-head", "origin", "-a"); err != nil {
+		printWarn("", "could not set origin/HEAD automatically; remote default branch may be unknown")
+	}
+
 	return false, nil
 }
