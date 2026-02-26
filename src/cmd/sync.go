@@ -131,10 +131,10 @@ func syncReadWrite(cfg *config.Config) error {
 			// Both strategies failed. Abort the merge and tell the user.
 			_ = gitRun("-C", repo, "merge", "--abort")
 			return fmt.Errorf(
-				"sync conflict could not be auto-resolved.\n" +
-					"   Please resolve manually in " + repo + ":\n" +
-					"     git -C " + repo + " status\n" +
-					"   Then commit and run 'axon sync' again.")
+				"sync conflict could not be auto-resolved.\n"+
+					"   Please resolve manually in %s:\n"+
+					"     git -C %s status\n"+
+					"   Then commit and run 'axon sync' again.", repo, repo)
 		}
 		printWarn("", "merged with remote (theirs wins on conflicts) — run 'axon doctor' to check for conflict files")
 	}
