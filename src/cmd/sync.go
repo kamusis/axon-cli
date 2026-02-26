@@ -99,6 +99,19 @@ func syncReadWrite(cfg *config.Config) error {
 		return nil
 	}
 
+	// Detect whether the remote has any commits yet (empty repo = first push).
+	remoteEmpty := gitRemoteIsEmpty(repo)
+
+	if remoteEmpty {
+		// First push — no upstream branch to pull from yet.
+		printInfo("", "git push -u origin master  (initial push to empty remote)")
+		if err := gitRun("-C", repo, "push", "-u", "origin", "master"); err != nil {
+			return fmt.Errorf("git push failed: %w", err)
+		}
+		printOK("", "Sync complete (initial push).")
+		return nil
+	}
+
 	// git pull --rebase origin master
 	printInfo("", "git pull --rebase origin master")
 	if err := gitRun("-C", repo, "pull", "--rebase", "origin", "master"); err != nil {
@@ -117,6 +130,7 @@ func syncReadWrite(cfg *config.Config) error {
 
 	printOK("", "Sync complete (read-write).")
 	return nil
+
 }
 
 // syncReadOnly: warn on local edits, then pull fast-forward only.
@@ -174,6 +188,17 @@ func gitHasRemote(repoPath string) bool {
 		return false
 	}
 	return strings.TrimSpace(out) != ""
+}
+
+// gitRemoteIsEmpty reports whether the remote has no refs at all (i.e. it is a
+// brand-new empty repository that has never received a push).
+func gitRemoteIsEmpty(repoPath string) bool {
+	out, err := gitOutput(repoPath, "ls-remote", "--heads", "origin")
+	if err != nil {
+		// ls-remote failure (e.g. auth error) — treat as non-empty to be safe.
+		return false
+	}
+	return strings.TrimSpace(out) == ""
 }
 
 // gitOutput runs a git sub-command and returns its combined stdout output.

@@ -153,6 +153,7 @@ func importExistingSkills(cfg *config.Config) error {
 	// Collect results into display buckets.
 	type importedEntry struct {
 		name   string
+		source string
 		result *importer.Result
 	}
 	var (
@@ -209,7 +210,7 @@ func importExistingSkills(cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("import [%s]: %w", t.Name, err)
 		}
-		imported = append(imported, importedEntry{name: t.Name, result: result})
+		imported = append(imported, importedEntry{name: t.Name, source: t.Source, result: result})
 		totalConflicts = append(totalConflicts, result.Conflicts...)
 	}
 
@@ -220,9 +221,15 @@ func importExistingSkills(cfg *config.Config) error {
 		fmt.Println("\n● Imported:")
 		for _, e := range imported {
 			r := e.result
-			fmt.Printf("  ✓  [%s] %d skill(s) imported, %d skipped, %d conflict(s)  (%d file(s))\n",
+			// Derive singular label from source: "skills"→"skill", "workflows"→"workflow", etc.
+			label := strings.TrimSuffix(e.source, "s")
+			if label == "" {
+				label = "item"
+			}
+			fmt.Printf("  ✓  [%s] %d %s(s) imported, %d skipped, %d conflict(s)  (%d file(s))\n",
 				e.name,
 				r.SkillsImported,
+				label,
 				r.SkillsSkipped,
 				r.SkillsConflicts,
 				r.Imported+r.Skipped)
