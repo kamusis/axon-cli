@@ -115,14 +115,28 @@ func syncReadWrite(cfg *config.Config) error {
 		return nil
 	}
 
-	// git pull --rebase origin master
-	printInfo("", "git pull --rebase origin master")
-	if err := gitRun("-C", repo, "pull", "--rebase", "origin", "master"); err != nil {
-		return fmt.Errorf(`git pull --rebase failed — this may be a merge conflict.
-   Please resolve conflicts manually in %s, then run:
-     git rebase --continue
-   or abort with:
-     git rebase --abort`, repo)
+	// git pull --rebase with auto conflict resolution.
+	// -X theirs: when content conflicts arise, favor the remote (upstream) version.
+	// This handles the common case of two machines independently importing the
+	// same skill file with slightly different content.
+	printInfo("", "git pull --rebase -X theirs origin master")
+	if err := gitRun("-C", repo, "pull", "--rebase", "-X", "theirs", "origin", "master"); err != nil {
+		// Stage 1 failed — likely a structural conflict (file vs directory, etc.)
+		// that -X theirs alone cannot resolve. Abort and fall back to merge.
+		printWarn("", "rebase auto-resolve failed; aborting and retrying with merge strategy")
+		_ = gitRun("-C", repo, "rebase", "--abort")
+
+		printInfo("", "git merge -X theirs origin/master  (fallback)")
+		if mergeErr := gitRun("-C", repo, "merge", "-X", "theirs", "origin/master"); mergeErr != nil {
+			// Both strategies failed. Abort the merge and tell the user.
+			_ = gitRun("-C", repo, "merge", "--abort")
+			return fmt.Errorf(
+				"sync conflict could not be auto-resolved.\n" +
+					"   Please resolve manually in " + repo + ":\n" +
+					"     git -C " + repo + " status\n" +
+					"   Then commit and run 'axon sync' again.")
+		}
+		printWarn("", "merged with remote (theirs wins on conflicts) — run 'axon doctor' to check for conflict files")
 	}
 
 	// git push origin master
