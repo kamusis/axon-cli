@@ -102,11 +102,10 @@ func DefaultConfig() (*Config, error) {
 			{Name: "openclaw-commands", Source: "commands", Destination: j(".openclaw", "commands"), Type: "directory"},
 			{Name: "codex-commands", Source: "commands", Destination: j(".codex", "commands"), Type: "directory"},
 			{Name: "gemini-commands", Source: "commands", Destination: j(".gemini", "commands"), Type: "directory"},
-			{Name: "claude-code-tools", Source: "commands", Destination: j(".anthropic", "claude-code", "tools"), Type: "directory"},
+			{Name: "claude-code-commands", Source: "commands", Destination: j(".claude", "commands"), Type: "directory"},
 		},
 	}, nil
 }
-
 
 // Load reads and parses ~/.axon/axon.yaml.
 func Load() (*Config, error) {
