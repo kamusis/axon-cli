@@ -3,6 +3,8 @@ version: 2
 before:
   hooks:
     - go mod tidy
+    - cp ../README.md .
+    - sh -c 'cp ../LICENSE . 2>/dev/null || true'
 
 builds:
   - id: axon
@@ -30,8 +32,8 @@ archives:
       - goos: windows
         formats: [zip]
     files:
-      - ../README.md
-      - ../LICENSE
+      - README.md
+      - LICENSE
 
 checksum:
   name_template: "checksums.txt"
