@@ -36,6 +36,9 @@ func init() {
 }
 
 func runRemoteSet(cmd *cobra.Command, args []string) error {
+	if err := checkGitAvailable(); err != nil {
+		return err
+	}
 	url := args[0]
 
 	cfg, err := config.Load()

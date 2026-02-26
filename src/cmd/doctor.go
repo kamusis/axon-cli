@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
 	"github.com/spf13/cobra"
@@ -21,7 +22,58 @@ Run this command when something seems wrong, or before filing a bug report.`,
 }
 
 func init() {
+	doctorCmd.AddCommand(doctorFixCmd)
 	rootCmd.AddCommand(doctorCmd)
+}
+
+var doctorFixCmd = &cobra.Command{
+	Use:   "fix",
+	Short: "Automatically fix detected issues",
+	Long: `Fix detected issues in the Axon environment.
+
+Currently fixes:
+  - Unresolved import conflicts: deletes all .conflict-* files from the Hub
+
+Run 'axon doctor' first to see what will be fixed.`,
+	RunE: runDoctorFix,
+}
+
+func runDoctorFix(_ *cobra.Command, _ []string) error {
+	if err := checkGitAvailable(); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)
+	}
+
+	printSection("axon doctor fix")
+
+	// ── Fix: delete all .conflict-* files ─────────────────────────────────────
+	fmt.Println("\n[ Unresolved conflicts ]")
+	conflicts := findConflictFiles(cfg.RepoPath)
+	if len(conflicts) == 0 {
+		printOK("", "no conflict files found — nothing to fix")
+		return nil
+	}
+
+	var failed int
+	for _, rel := range conflicts {
+		full := filepath.Join(cfg.RepoPath, rel)
+		if err := os.Remove(full); err != nil {
+			printErr("", fmt.Sprintf("cannot delete %s: %v", rel, err))
+			failed++
+		} else {
+			printOK("", fmt.Sprintf("deleted %s", rel))
+		}
+	}
+
+	fmt.Println()
+	if failed > 0 {
+		return fmt.Errorf("%d file(s) could not be deleted", failed)
+	}
+	fmt.Printf("  ✓  %d conflict file(s) removed. Run 'axon sync' to commit the cleanup.\n", len(conflicts))
+	return nil
 }
 
 func runDoctor(_ *cobra.Command, _ []string) error {
@@ -145,7 +197,27 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Println()
 
-	// ── Check 6: Symlink creation permission (Windows only) ──────────────────────
+	// ── Check 6: Unresolved import conflicts ──────────────────────────────────
+	fmt.Println("[ Unresolved conflicts ]")
+	if loadErr == nil {
+		conflicts := findConflictFiles(cfg.RepoPath)
+		if len(conflicts) == 0 {
+			printOK("", "no unresolved conflict files found")
+		} else {
+			for _, c := range conflicts {
+				printWarn("", c)
+			}
+			fmt.Printf("\n  ⚠  %d unresolved conflict file(s) found in Hub.\n", len(conflicts))
+			fmt.Println("     Review and delete the .conflict-* files you no longer need,")
+			fmt.Println("     then run 'axon sync' to commit the resolution.")
+			allOK = false
+		}
+	} else {
+		printWarn("", "skipped (axon.yaml not loaded)")
+	}
+	fmt.Println()
+
+	// ── Check 7: Symlink creation permission (Windows only) ──────────────────────
 	if runtime.GOOS == "windows" {
 		fmt.Println("[ Windows symlink permission ]")
 		if err := checkWindowsSymlinkPermission(); err != nil {
@@ -186,4 +258,26 @@ func checkWindowsSymlinkPermission() error {
 	defer os.Remove(dst)
 
 	return os.Symlink(src, dst)
+}
+
+// findConflictFiles walks repoPath and returns relative paths of all files
+// whose name contains ".conflict-" — these are leftover from axon init import.
+func findConflictFiles(repoPath string) []string {
+	var found []string
+	_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		name := d.Name()
+		// Match files like: foo.conflict-gemini-skills.md
+		if strings.Contains(name, ".conflict-") {
+			rel, relErr := filepath.Rel(repoPath, path)
+			if relErr != nil {
+				rel = path
+			}
+			found = append(found, rel)
+		}
+		return nil
+	})
+	return found
 }

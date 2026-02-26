@@ -127,6 +127,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		len(linked), len(realDir), len(needLink), len(notInstalled), len(broken), total)
 
 	fmt.Println("\n=== Hub Git Status ===")
+	if err := checkGitAvailable(); err != nil {
+		printWarn("", "git not available — skipping Hub Git status.")
+		return nil
+	}
 	out, err := exec.Command("git", "-C", cfg.RepoPath, "-c", "advice.statusHints=false", "status").Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

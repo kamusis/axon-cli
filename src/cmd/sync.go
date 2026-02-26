@@ -30,6 +30,9 @@ func init() {
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
+	if err := checkGitAvailable(); err != nil {
+		return err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)

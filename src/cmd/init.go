@@ -43,6 +43,9 @@ func init() {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
+	if err := checkGitAvailable(); err != nil {
+		return err
+	}
 	// ── 1. Resolve ~/.axon directory ──────────────────────────────────────────
 	axonDir, err := config.AxonDir()
 	if err != nil {

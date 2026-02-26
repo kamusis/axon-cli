@@ -22,6 +22,15 @@ Axon keeps your AI-editor/CLI/agent skills, workflows, and commands in sync acro
 
 ## Quick Start
 
+> **Prerequisite:** `git` must be installed and on your `PATH` before running any axon command.
+>
+> | OS            | Install                                                                                  |
+> | ------------- | ---------------------------------------------------------------------------------------- |
+> | macOS         | `brew install git` or Xcode Command Line Tools: `xcode-select --install`                 |
+> | Ubuntu/Debian | `sudo apt install git`                                                                   |
+> | Fedora/RHEL   | `sudo dnf install git`                                                                   |
+> | Windows       | [git-scm.com/download/win](https://git-scm.com/download/win) or `winget install Git.Git` |
+
 ```bash
 # 1. Download axon for your platform (see Releases)
 # 2. Bootstrap a local Hub
@@ -42,6 +51,7 @@ axon sync
 | `axon link [name\|all]`   | Create symlinks from tool dirs to the Hub             |
 | `axon unlink [name\|all]` | Remove symlinks; restore backups if available         |
 | `axon sync`               | Commit → pull → push (or pull-only in read-only mode) |
+| `axon remote set <url>`   | Set or update the Hub's git remote origin URL         |
 | `axon status`             | Validate symlinks + show Hub git status               |
 | `axon doctor`             | Pre-flight environment check                          |
 | `axon inspect <skill>`    | Show metadata and structure of a skill                |
@@ -100,6 +110,14 @@ targets:
 
   # ... 20 targets pre-configured out of the box
 ```
+
+## Prerequisites
+
+| Dependency | Required | Notes                                                                                                                                    |
+| ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **git**    | ✅ Hard  | Must be installed and on `PATH`. Axon uses `git` for all Hub operations (`init`, `link`, `sync`, `remote`). Run `axon doctor` to verify. |
+
+If `git` is not found, affected commands will exit immediately with a clear error message.
 
 ## Installation
 
