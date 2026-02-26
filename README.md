@@ -142,10 +142,7 @@ sudo mv axon /usr/local/bin/
 
 ## Windows Notes
 
-Creating symbolic links on Windows requires either:
-
-- **Developer Mode** enabled (`Settings → System → For developers → Developer Mode → ON`)
-- **Admin terminal**
+Creating symbolic links on Windows requires an Administrator terminal.
 
 Run `axon doctor` to check your environment before running `axon link`.
 WSL is fully supported without these restrictions.

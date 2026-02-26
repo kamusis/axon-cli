@@ -82,7 +82,7 @@ func DefaultConfig() (*Config, error) {
 		Targets: []Target{
 			// === GLOBAL SKILLS (The Prompts & Instructions) ===
 			{Name: "windsurf-skills", Source: "skills", Destination: j(".codeium", "windsurf", "skills"), Type: "directory"},
-			{Name: "antigravity-skills", Source: "skills", Destination: j(".gemini", "antigravity", "global_skills"), Type: "directory"},
+			{Name: "antigravity-skills", Source: "skills", Destination: j(".gemini", "antigravity", "skills"), Type: "directory"},
 			{Name: "openclaw-skills", Source: "skills", Destination: j(".openclaw", "skills"), Type: "directory"},
 			{Name: "cursor-skills", Source: "skills", Destination: j(".cursor", "skills"), Type: "directory"},
 			{Name: "opencode-skills", Source: "skills", Destination: j(".opencode", "skills"), Type: "directory"},

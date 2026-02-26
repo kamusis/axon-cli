@@ -221,10 +221,8 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	if runtime.GOOS == "windows" {
 		fmt.Println("[ Windows symlink permission ]")
 		if err := checkWindowsSymlinkPermission(); err != nil {
-			failD("Symlink creation failed — Developer Mode or Administrator rights required.\n" +
-				"   To enable Developer Mode on Windows:\n" +
-				"     Settings → System → For developers → Developer Mode → ON\n" +
-				"   Alternatively, run Axon in an Administrator terminal.\n" +
+			failD("Symlink creation will fail in this terminal — Administrator rights required.\n" +
+				"   Run axon in an Administrator terminal.\n" +
 				"   WSL users are not affected by this restriction.")
 		} else {
 			printOK("", "symlink creation permitted")
