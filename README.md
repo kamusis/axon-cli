@@ -1,0 +1,166 @@
+# Axon CLI
+
+**Hub-and-Spoke skill manager for AI editors/CLIs/agents.**
+
+Axon keeps your AI-editor/CLI/agent skills, workflows, and commands in sync across all your machines using a single Git-backed Hub at `~/.axon/repo/`. One command to rule them all — `axon sync`.
+
+---
+
+## How It Works
+
+```
+~/.axon/repo/          ← The Hub (local Git repo, optionally synced to remote)
+  skills/
+  workflows/
+  commands/
+
+~/.codeium/windsurf/skills     → symlink → Hub/skills/
+~/.gemini/antigravity/...      → symlink → Hub/skills/
+~/.cursor/skills               → symlink → Hub/skills/
+... (20 targets out of the box)
+```
+
+## Quick Start
+
+```bash
+# 1. Download axon for your platform (see Releases)
+# 2. Bootstrap a local Hub
+axon init
+
+# 3. Link all your AI tools to the Hub
+axon link
+
+# 4. Sync to a remote repo (optional — add a remote first)
+axon sync
+```
+
+## Commands
+
+| Command                   | Description                                           |
+| ------------------------- | ----------------------------------------------------- |
+| `axon init [repo-url]`    | Bootstrap the Hub; import existing skills             |
+| `axon link [name\|all]`   | Create symlinks from tool dirs to the Hub             |
+| `axon unlink [name\|all]` | Remove symlinks; restore backups if available         |
+| `axon sync`               | Commit → pull → push (or pull-only in read-only mode) |
+| `axon status`             | Validate symlinks + show Hub git status               |
+| `axon doctor`             | Pre-flight environment check                          |
+| `axon inspect <skill>`    | Show metadata and structure of a skill                |
+
+### `axon init` — Three Modes
+
+| Mode                  | Command                                   | Effect                              |
+| --------------------- | ----------------------------------------- | ----------------------------------- |
+| **A** Local only      | `axon init`                               | `git init` in Hub; add remote later |
+| **B** Personal remote | `axon init git@github.com:you/skills.git` | Clone or init + set origin          |
+| **C** Public upstream | `axon init --upstream`                    | Clone public hub, read-only         |
+
+During init, Axon **safely imports** your existing skills:
+
+- Files with the **same MD5** → one copy kept, duplicate skipped
+- Files with the **same name but different content** → both preserved:
+  `oracle_expert.md` + `oracle_expert.conflict-antigravity.md`
+
+### `axon sync` — Two Modes
+
+Configured via `sync_mode` in `~/.axon/axon.yaml`:
+
+- **`read-write`** (default): `git add` → `git commit` → `git pull --rebase` → `git push`
+- **`read-only`**: `git pull --ff-only` only; warns if local edits exist
+
+Axon-layer exclude patterns (from `excludes:` in `axon.yaml`) are written to `.git/info/exclude` before every sync — junk files can never reach a commit even without a `.gitignore`.
+
+**Embedded `.git` auto-strip:** Skills downloaded via `git clone` often contain their own `.git` directory. Axon automatically detects and removes nested `.git` dirs before each `git add` so skills are committed as regular content, not as unresolvable submodules. Original skill files are never touched — only the `.git` metadata folder is stripped.
+
+## Configuration
+
+`~/.axon/axon.yaml` is generated automatically by `axon init`. Edit it to add or remove targets.
+
+```yaml
+repo_path: ~/.axon/repo
+sync_mode: read-write
+upstream: https://github.com/kamusis/axon-hub.git
+
+excludes:
+  - .DS_Store
+  - Thumbs.db
+  - "*.tmp"
+  - "*.log"
+  # ... more patterns
+
+targets:
+  - name: windsurf-skills
+    source: skills
+    destination: ~/.codeium/windsurf/skills
+    type: directory
+
+  - name: antigravity-workflows
+    source: workflows
+    destination: ~/.gemini/antigravity/global_workflows
+    type: directory
+
+  # ... 20 targets pre-configured out of the box
+```
+
+## Installation
+
+### Homebrew (macOS/Linux) — coming soon
+
+```bash
+brew install kamusis/tap/axon
+```
+
+### Download Binary
+
+Download the latest release from [GitHub Releases](https://github.com/kamusis/axon-cli/releases) and place `axon` in your `$PATH`.
+
+### Build from Source
+
+```bash
+git clone https://github.com/kamusis/axon-cli.git
+cd axon-cli/src
+go build -o axon .
+sudo mv axon /usr/local/bin/
+```
+
+## Windows Notes
+
+Creating symbolic links on Windows requires either:
+
+- **Developer Mode** enabled (`Settings → System → For developers → Developer Mode → ON`)
+- **Admin terminal**
+
+Run `axon doctor` to check your environment before running `axon link`.
+WSL is fully supported without these restrictions.
+
+## Supported AI Editors (Out of the Box)
+
+| Tool        | Skills | Workflows | Commands |
+| ----------- | ------ | --------- | -------- |
+| Windsurf    | ✓      | ✓         | ✓        |
+| Antigravity | ✓      | ✓         |          |
+| Cursor      | ✓      |           |          |
+| OpenClaw    | ✓      | ✓         | ✓        |
+| OpenCode    | ✓      |           |          |
+| Neovate     | ✓      |           |          |
+| Claude Code | ✓      |           | ✓        |
+| Codex       | ✓      | ✓         | ✓        |
+| Gemini      | ✓      | ✓         | ✓        |
+| PearAI      | ✓      |           |          |
+
+## `axon inspect` — Skill Metadata
+
+Quickly inspect a skill without navigating the file system:
+
+```bash
+axon inspect humanizer        # exact name
+axon inspect git              # fuzzy match → shows git-pr-creator, git-release, github-issues
+axon inspect windsurf-skills  # by target name
+```
+
+Parses `SKILL.md` frontmatter and shows: name, version, description, triggers, allowed tools, scripts, and declared dependencies (`requires.bins` / `requires.envs` with live availability check).
+
+---
+
+## License
+
+MIT
