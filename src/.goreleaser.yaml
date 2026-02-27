@@ -42,6 +42,7 @@ release:
   github:
     owner: kamusis
     name: axon-cli
+  prerelease: auto
 
 changelog:
   sort: asc
