@@ -37,12 +37,12 @@ func init() {
 // skillMeta holds the parsed YAML frontmatter from a SKILL.md file.
 // We capture all known fields loosely — unknown fields are ignored.
 type skillMeta struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Version     string   `yaml:"version"`
-	License     string   `yaml:"license"`
+	Name         string   `yaml:"name"`
+	Description  string   `yaml:"description"`
+	Version      string   `yaml:"version"`
+	License      string   `yaml:"license"`
 	AllowedTools []string `yaml:"allowed-tools"`
-	AutoInvoke  bool     `yaml:"auto_invoke"`
+	AutoInvoke   bool     `yaml:"auto_invoke"`
 
 	// Triggers: list of {pattern, description} maps OR bare strings.
 	// We unmarshal as []yaml.Node for maximum flexibility.
@@ -297,7 +297,8 @@ func extractTriggers(node yaml.Node) []string {
 		return nil
 	}
 	var out []string
-	if node.Kind == yaml.SequenceNode {
+	switch node.Kind {
+	case yaml.SequenceNode:
 		for _, item := range node.Content {
 			switch item.Kind {
 			case yaml.ScalarNode:
@@ -311,7 +312,7 @@ func extractTriggers(node yaml.Node) []string {
 				}
 			}
 		}
-	} else if node.Kind == yaml.ScalarNode {
+	case yaml.ScalarNode:
 		out = append(out, node.Value)
 	}
 	return out

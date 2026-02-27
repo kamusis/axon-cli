@@ -23,7 +23,7 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X github.com/kamusis/axon-cli/cmd.version={{.Version}} -X github.com/kamusis/axon-cli/cmd.commit={{.Commit}} -X github.com/kamusis/axon-cli/cmd.buildDate={{.Date}}
 
 archives:
   - id: axon

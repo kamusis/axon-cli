@@ -1,16 +1,16 @@
 package cmd
 
 import (
-"fmt"
-"os"
-"os/exec"
-"path/filepath"
-"runtime"
-"sort"
-"strings"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
 
-"github.com/kamusis/axon-cli/internal/config"
-"github.com/spf13/cobra"
+	"github.com/kamusis/axon-cli/internal/config"
+	"github.com/spf13/cobra"
 )
 
 var doctorCmd = &cobra.Command{
@@ -375,38 +375,38 @@ func checkConflicts(cfg *config.Config) []DiagnosticResult {
 }
 
 func checkPermissions(cfg *config.Config) []DiagnosticResult {
-cat := "Permission Sentinel"
-var res []DiagnosticResult
+	cat := "Permission Sentinel"
+	var res []DiagnosticResult
 
-for _, t := range cfg.Targets {
-dest, err := config.ExpandPath(t.Destination)
-if err != nil {
-continue
-}
-parent := filepath.Dir(dest)
-if info, parentErr := os.Stat(parent); parentErr == nil && info.IsDir() {
-// Try writing a harmless temp file to the parent dir
-probePath := filepath.Join(parent, ".axon-probe-perms")
-err := os.WriteFile(probePath, []byte(""), 0644)
-if err != nil {
-res = append(res, DiagnosticResult{
-Category:    cat,
-Item:        t.Name,
-Passed:      false,
-Message:     fmt.Sprintf("no write permission in %s", parent),
-Remediation: fmt.Sprintf("fix permissions for %s to allow symlink creation", parent),
-})
-} else {
-os.Remove(probePath)
-res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: true, Message: "write permitted"})
-}
-}
-}
+	for _, t := range cfg.Targets {
+		dest, err := config.ExpandPath(t.Destination)
+		if err != nil {
+			continue
+		}
+		parent := filepath.Dir(dest)
+		if info, parentErr := os.Stat(parent); parentErr == nil && info.IsDir() {
+			// Try writing a harmless temp file to the parent dir
+			probePath := filepath.Join(parent, ".axon-probe-perms")
+			err := os.WriteFile(probePath, []byte(""), 0644)
+			if err != nil {
+				res = append(res, DiagnosticResult{
+					Category:    cat,
+					Item:        t.Name,
+					Passed:      false,
+					Message:     fmt.Sprintf("no write permission in %s", parent),
+					Remediation: fmt.Sprintf("fix permissions for %s to allow symlink creation", parent),
+				})
+			} else {
+				os.Remove(probePath)
+				res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: true, Message: "write permitted"})
+			}
+		}
+	}
 
-if len(res) == 0 {
-res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "No directories to check permissions for."})
-}
-return res
+	if len(res) == 0 {
+		res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "No directories to check permissions for."})
+	}
+	return res
 }
 
 func checkBinaryDeps(cfg *config.Config) []DiagnosticResult {
@@ -478,46 +478,46 @@ func checkBinaryDeps(cfg *config.Config) []DiagnosticResult {
 }
 
 func checkWindowsSymlink() []DiagnosticResult {
-cat := "Windows symlink permission"
-if err := checkWindowsSymlinkPermission(); err != nil {
-return []DiagnosticResult{{
-Category:    cat,
-Passed:      false,
-Message:     "Administrator rights required to create symlinks",
-Remediation: "Run axon in an Administrator terminal. WSL users are not affected.",
-}}
-}
-return []DiagnosticResult{{Category: cat, Passed: true, Message: "symlink creation permitted"}}
+	cat := "Windows symlink permission"
+	if err := checkWindowsSymlinkPermission(); err != nil {
+		return []DiagnosticResult{{
+			Category:    cat,
+			Passed:      false,
+			Message:     "Administrator rights required to create symlinks",
+			Remediation: "Run axon in an Administrator terminal. WSL users are not affected.",
+		}}
+	}
+	return []DiagnosticResult{{Category: cat, Passed: true, Message: "symlink creation permitted"}}
 }
 
 func checkWindowsSymlinkPermission() error {
-tmp := os.TempDir()
-src := filepath.Join(tmp, "axon-doctor-src")
-dst := filepath.Join(tmp, "axon-doctor-link")
+	tmp := os.TempDir()
+	src := filepath.Join(tmp, "axon-doctor-src")
+	dst := filepath.Join(tmp, "axon-doctor-link")
 
-if err := os.WriteFile(src, []byte("probe"), 0o644); err != nil {
-return err
-}
-defer os.Remove(src)
-defer os.Remove(dst)
+	if err := os.WriteFile(src, []byte("probe"), 0o644); err != nil {
+		return err
+	}
+	defer os.Remove(src)
+	defer os.Remove(dst)
 
-return os.Symlink(src, dst)
+	return os.Symlink(src, dst)
 }
 
 func findConflictFiles(repoPath string) []string {
-var found []string
-_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
-if err != nil || d.IsDir() {
-return err
-}
-if strings.Contains(d.Name(), ".conflict-") {
-rel, relErr := filepath.Rel(repoPath, path)
-if relErr != nil {
-rel = path
-}
-found = append(found, rel)
-}
-return nil
-})
-return found
+	var found []string
+	_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if strings.Contains(d.Name(), ".conflict-") {
+			rel, relErr := filepath.Rel(repoPath, path)
+			if relErr != nil {
+				rel = path
+			}
+			found = append(found, rel)
+		}
+		return nil
+	})
+	return found
 }

@@ -277,7 +277,7 @@ func createSymlink(hub, dest, name string) error {
 }
 
 // backupDir returns (and creates) the timestamped backup path for a target.
-func backupDir(cfg *config.Config, targetName string) (string, error) {
+func backupDir(_ *config.Config, targetName string) (string, error) {
 	axonDir, err := config.AxonDir()
 	if err != nil {
 		return "", err
