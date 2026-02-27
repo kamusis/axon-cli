@@ -40,81 +40,116 @@ func ImportDir(srcDir, dstDir, toolName string, excludes []string) (*Result, err
 	skillSkipped  := map[string]bool{}
 	skillConflict := map[string]bool{}
 
-	err := filepath.WalkDir(srcDir, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	// ── Early Optimization: skip if already linked ────────────────────────────────
+	if resolvedSrc, err := filepath.EvalSymlinks(srcDir); err == nil {
+		if resolvedDst, err := filepath.EvalSymlinks(dstDir); err == nil {
+			if resolvedSrc == resolvedDst {
+				// The source is already a symlink pointing to our repo destination.
+				// This implies `axon link` was already run.
+				// We can safely skip the entire import traverse to avoid no-op work.
+				return result, nil
+			}
 		}
-		// Skip the root itself.
-		if path == srcDir {
-			return nil
-		}
+	}
 
-		rel, err := filepath.Rel(srcDir, path)
+	visitedDirs := make(map[string]bool)
+	if resolvedSrc, err := filepath.EvalSymlinks(srcDir); err == nil {
+		visitedDirs[resolvedSrc] = true
+	}
+
+	var walk func(currentSrc, currentRel string) error
+	walk = func(currentSrc, currentRel string) error {
+		entries, err := os.ReadDir(currentSrc)
 		if err != nil {
 			return err
 		}
 
-		// ── Exclude filtering (Layer 1 guard) ────────────────────────────────
-		if matchesExclude(rel, excludes) {
-			if d.IsDir() {
-				return filepath.SkipDir
+		for _, entry := range entries {
+			path := filepath.Join(currentSrc, entry.Name())
+			rel := filepath.Join(currentRel, entry.Name())
+
+			// ── Exclude filtering (Layer 1 guard) ────────────────────────────────
+			if matchesExclude(rel, excludes) {
+				continue
 			}
-			return nil
-		}
 
-		dst := filepath.Join(dstDir, rel)
-
-		if d.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-
-		// Top-level component = skill name (files at root get key ".").
-		skillKey := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-
-		// ── MD5 conflict resolution ───────────────────────────────────────────
-		if _, err := os.Stat(dst); err == nil {
-			// Destination file already exists — compare fingerprints.
-			srcMD5, err := fileMD5(path)
+			// Stat the file to follow symlinks transparently.
+			info, err := os.Stat(path)
 			if err != nil {
-				return fmt.Errorf("md5 %s: %w", path, err)
+				// Ignore broken symlinks or unreadable files.
+				continue
 			}
-			dstMD5, err := fileMD5(dst)
-			if err != nil {
-				return fmt.Errorf("md5 %s: %w", dst, err)
+
+			dst := filepath.Join(dstDir, rel)
+
+			if info.IsDir() {
+				// Cycle detection for directory symlinks
+				resolved, err := filepath.EvalSymlinks(path)
+				if err == nil {
+					if visitedDirs[resolved] {
+						continue
+					}
+					visitedDirs[resolved] = true
+				}
+
+				if err := os.MkdirAll(dst, 0o755); err != nil {
+					return err
+				}
+				if err := walk(path, rel); err != nil {
+					return err
+				}
+				continue
 			}
-			if srcMD5 == dstMD5 {
-				// Identical — skip silently.
-				result.Skipped++
-				skillSkipped[skillKey] = true
-				return nil
+
+			// Top-level component = skill name (files at root get key ".").
+			skillKey := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+
+			// ── MD5 conflict resolution ───────────────────────────────────────────
+			if _, err := os.Stat(dst); err == nil {
+				// Destination file already exists — compare fingerprints.
+				srcMD5, err := fileMD5(path)
+				if err != nil {
+					return fmt.Errorf("md5 %s: %w", path, err)
+				}
+				dstMD5, err := fileMD5(dst)
+				if err != nil {
+					return fmt.Errorf("md5 %s: %w", dst, err)
+				}
+				if srcMD5 == dstMD5 {
+					// Identical — skip silently.
+					result.Skipped++
+					skillSkipped[skillKey] = true
+					continue
+				}
+				// Different content — conflict-safe write.
+				conflictDst := conflictPath(dst, toolName)
+				if err := copyFile(path, conflictDst); err != nil {
+					return fmt.Errorf("conflict copy %s → %s: %w", path, conflictDst, err)
+				}
+				result.Conflicts = append(result.Conflicts, ConflictPair{
+					Original: dst,
+					Conflict: conflictDst,
+					Tool:     toolName,
+				})
+				result.Imported++
+				skillConflict[skillKey] = true
+				continue
 			}
-			// Different content — conflict-safe write.
-			conflictDst := conflictPath(dst, toolName)
-			if err := copyFile(path, conflictDst); err != nil {
-				return fmt.Errorf("conflict copy %s → %s: %w", path, conflictDst, err)
+
+			// Destination file does not exist — plain copy.
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				return err
 			}
-			result.Conflicts = append(result.Conflicts, ConflictPair{
-				Original: dst,
-				Conflict: conflictDst,
-				Tool:     toolName,
-			})
+			if err := copyFile(path, dst); err != nil {
+				return fmt.Errorf("copy %s → %s: %w", path, dst, err)
+			}
 			result.Imported++
-			skillConflict[skillKey] = true
-			return nil
+			skillImported[skillKey] = true
 		}
-
-		// Destination file does not exist — plain copy.
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if err := copyFile(path, dst); err != nil {
-			return fmt.Errorf("copy %s → %s: %w", path, dst, err)
-		}
-		result.Imported++
-		skillImported[skillKey] = true
 		return nil
-	})
-	if err != nil {
+	}
+
+	if err := walk(srcDir, ""); err != nil {
 		return result, err
 	}
 
