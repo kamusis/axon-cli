@@ -84,13 +84,14 @@ func DefaultConfig() (*Config, error) {
 			{Name: "windsurf-skills", Source: "skills", Destination: j(".codeium", "windsurf", "skills"), Type: "directory"},
 			{Name: "antigravity-skills", Source: "skills", Destination: j(".gemini", "antigravity", "skills"), Type: "directory"},
 			{Name: "openclaw-skills", Source: "skills", Destination: j(".openclaw", "skills"), Type: "directory"},
+			{Name: "qoder-skills", Source: "skills", Destination: j(".qoder", "skills"), Type: "directory"},
+			{Name: "trae-skills", Source: "skills", Destination: j(".trae", "skills"), Type: "directory"},
 			{Name: "cursor-skills", Source: "skills", Destination: j(".cursor", "skills"), Type: "directory"},
 			{Name: "opencode-skills", Source: "skills", Destination: j(".opencode", "skills"), Type: "directory"},
 			{Name: "neovate-skills", Source: "skills", Destination: j(".neovate", "skills"), Type: "directory"},
 			{Name: "claude-code-skills", Source: "skills", Destination: j(".claude", "skills"), Type: "directory"},
 			{Name: "codex-skills", Source: "skills", Destination: j(".codex", "skills"), Type: "directory"},
 			{Name: "gemini-skills", Source: "skills", Destination: j(".gemini", "skills"), Type: "directory"},
-			{Name: "pearai-skills", Source: "skills", Destination: j(".pearai", "skills"), Type: "directory"},
 			// === WORKFLOWS (The Structured Task Chains) ===
 			{Name: "windsurf-workflows", Source: "workflows", Destination: j(".codeium", "windsurf", "global_workflows"), Type: "directory"},
 			{Name: "antigravity-workflows", Source: "workflows", Destination: j(".gemini", "antigravity", "global_workflows"), Type: "directory"},
@@ -100,6 +101,7 @@ func DefaultConfig() (*Config, error) {
 			// === COMMANDS & ACTIONS (The Executable Extensions) ===
 			{Name: "windsurf-commands", Source: "commands", Destination: j(".codeium", "windsurf", "commands"), Type: "directory"},
 			{Name: "openclaw-commands", Source: "commands", Destination: j(".openclaw", "commands"), Type: "directory"},
+			{Name: "qoder-commands", Source: "commands", Destination: j(".qoder", "commands"), Type: "directory"},
 			{Name: "codex-commands", Source: "commands", Destination: j(".codex", "commands"), Type: "directory"},
 			{Name: "gemini-commands", Source: "commands", Destination: j(".gemini", "commands"), Type: "directory"},
 			{Name: "claude-code-commands", Source: "commands", Destination: j(".claude", "commands"), Type: "directory"},
