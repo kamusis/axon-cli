@@ -1,16 +1,16 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sort"
-	"strings"
+"fmt"
+"os"
+"os/exec"
+"path/filepath"
+"runtime"
+"sort"
+"strings"
 
-	"github.com/kamusis/axon-cli/internal/config"
-	"github.com/spf13/cobra"
+"github.com/kamusis/axon-cli/internal/config"
+"github.com/spf13/cobra"
 )
 
 var doctorCmd = &cobra.Command{
@@ -21,216 +21,57 @@ Run this command when something seems wrong, or before filing a bug report.`,
 	RunE: runDoctor,
 }
 
+var doctorFix bool
+
 func init() {
-	doctorCmd.AddCommand(doctorFixCmd)
+	doctorCmd.Flags().BoolVar(&doctorFix, "fix", false, "Automatically fix detected issues where possible")
 	rootCmd.AddCommand(doctorCmd)
 }
 
-var doctorFixCmd = &cobra.Command{
-	Use:   "fix",
-	Short: "Automatically fix detected issues",
-	Long: `Fix detected issues in the Axon environment.
-
-Currently fixes:
-  - Unresolved import conflicts: deletes all .conflict-* files from the Hub
-
-Run 'axon doctor' first to see what will be fixed.`,
-	RunE: runDoctorFix,
-}
-
-func runDoctorFix(_ *cobra.Command, _ []string) error {
-	if err := checkGitAvailable(); err != nil {
-		return err
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)
-	}
-
-	printSection("axon doctor fix")
-
-	// ── Fix: delete all .conflict-* files ─────────────────────────────────────
-	fmt.Println("\n[ Unresolved conflicts ]")
-	conflicts := findConflictFiles(cfg.RepoPath)
-	if len(conflicts) == 0 {
-		printOK("", "no conflict files found — nothing to fix")
-		return nil
-	}
-
-	var failed int
-	for _, rel := range conflicts {
-		full := filepath.Join(cfg.RepoPath, rel)
-		if err := os.Remove(full); err != nil {
-			printErr("", fmt.Sprintf("cannot delete %s: %v", rel, err))
-			failed++
-		} else {
-			printOK("", fmt.Sprintf("deleted %s", rel))
-		}
-	}
-
-	fmt.Println()
-	if failed > 0 {
-		return fmt.Errorf("%d file(s) could not be deleted", failed)
-	}
-	fmt.Printf("  ✓  %d conflict file(s) removed. Run 'axon sync' to commit the cleanup.\n", len(conflicts))
-	return nil
+type DiagnosticResult struct {
+	Category    string
+	Item        string
+	Passed      bool
+	Message     string
+	Remediation string
+	CanFix      bool
+	FixAction   func() error
 }
 
 func runDoctor(_ *cobra.Command, _ []string) error {
-	allOK := true
-	failD := func(format string, args ...any) {
-		printErr("", fmt.Sprintf(format, args...))
-		allOK = false
-	}
-
 	printSection("axon doctor")
 	fmt.Println()
 
-	// ── Check 1: git installed ────────────────────────────────────────────
-	fmt.Println("[ git ]")
-	if out, err := exec.Command("git", "--version").Output(); err != nil {
-		failD("git not found — please install Git: https://git-scm.com/downloads")
-	} else {
-		printOK("", string(out[:len(out)-1])) // trim newline
-	}
-	fmt.Println()
+	results := gatherDiagnostics()
 
-	// ── Check 2: Hub directory exists ─────────────────────────────────────────
-	fmt.Println("[ Hub directory ]")
-	axonDir, err := config.AxonDir()
-	if err != nil {
-		failD("cannot determine home directory: %v", err)
-	} else {
-		cfgPath, _ := config.ConfigPath()
-		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-			failD("~/.axon/axon.yaml not found — run 'axon init' first")
+	if doctorFix {
+		return runFixes(results)
+	}
+
+	allOK := true
+	var currentCategory string
+
+	for _, r := range results {
+		if r.Category != currentCategory {
+			if currentCategory != "" {
+				fmt.Println()
+			}
+			fmt.Printf("[ %s ]\n", r.Category)
+			currentCategory = r.Category
+		}
+
+		if r.Passed {
+			printOK(r.Item, r.Message)
 		} else {
-			printOK("", fmt.Sprintf("~/.axon/ exists: %s", axonDir))
-		}
-	}
-	fmt.Println()
-
-	// ── Check 3: axon.yaml is valid ─────────────────────────────────────────
-	fmt.Println("[ axon.yaml ]")
-	cfg, loadErr := config.Load()
-	if loadErr != nil {
-		failD("cannot parse axon.yaml: %v", loadErr)
-	} else {
-		printOK("", fmt.Sprintf("valid YAML — %d target(s) defined", len(cfg.Targets)))
-		if cfg.RepoPath == "" {
-			failD("repo_path is empty")
-		}
-		if cfg.SyncMode != "read-write" && cfg.SyncMode != "read-only" {
-			printWarn("", fmt.Sprintf("unknown sync_mode %q — expected read-write or read-only", cfg.SyncMode))
-		}
-	}
-	fmt.Println()
-
-	// ── Check 4: Hub repo exists ───────────────────────────────────────────────
-	fmt.Println("[ Hub repo ]")
-	if loadErr == nil {
-		gitDir := filepath.Join(cfg.RepoPath, ".git")
-		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-			failD("Hub repo not initialised at %s — run 'axon init'", cfg.RepoPath)
-		} else {
-			printOK("", fmt.Sprintf("Git repo ready: %s", cfg.RepoPath))
-		}
-	} else {
-		printWarn("", "skipped (axon.yaml not loaded)")
-	}
-	fmt.Println()
-
-	// ── Check 5: All symlinks healthy ─────────────────────────────────────────────
-	fmt.Println("[ Symlinks ]")
-	if loadErr == nil {
-		targets := make([]config.Target, len(cfg.Targets))
-		copy(targets, cfg.Targets)
-		sort.Slice(targets, func(i, j int) bool {
-			return targets[i].Name < targets[j].Name
-		})
-
-		symlinkOK := true
-		for _, t := range targets {
-			dest, err := config.ExpandPath(t.Destination)
-			if err != nil {
-				failD("[%s] cannot expand path: %v", t.Name, err)
-				symlinkOK = false
-				continue
-			}
-
-			// If parent doesn't exist, tool isn't installed.
-			parent := filepath.Dir(dest)
-			if _, parentErr := os.Stat(parent); os.IsNotExist(parentErr) {
-				continue // Skip silently in doctor, status handles this verbosely
-			}
-
-			info, err := os.Lstat(dest)
-			if os.IsNotExist(err) {
-				printWarn(t.Name, fmt.Sprintf("not linked yet (run 'axon link %s')", t.Name))
-				symlinkOK = false
-				continue
-			}
-			if err != nil {
-				failD("[%s] stat error: %v", t.Name, err)
-				symlinkOK = false
-				continue
-			}
-			if info.Mode()&os.ModeSymlink == 0 {
-				printWarn(t.Name, fmt.Sprintf("real directory present at %s (run 'axon link %s' to convert)", dest, t.Name))
-				symlinkOK = false
-				continue
-			}
-			expected := filepath.Join(cfg.RepoPath, t.Source)
-			actual, _ := os.Readlink(dest)
-			if actual != expected {
-				failD("[%s] wrong target:\n      got:  %s\n      want: %s", t.Name, actual, expected)
-				symlinkOK = false
-				continue
-			}
-			printOK(t.Name, "OK")
-		}
-		if symlinkOK {
-			fmt.Println("  All configured symlinks are healthy.")
-		}
-	} else {
-		printWarn("", "skipped (axon.yaml not loaded)")
-	}
-	fmt.Println()
-
-	// ── Check 6: Unresolved import conflicts ──────────────────────────────────
-	fmt.Println("[ Unresolved conflicts ]")
-	if loadErr == nil {
-		conflicts := findConflictFiles(cfg.RepoPath)
-		if len(conflicts) == 0 {
-			printOK("", "no unresolved conflict files found")
-		} else {
-			for _, c := range conflicts {
-				printWarn("", c)
-			}
-			fmt.Printf("\n  ⚠  %d unresolved conflict file(s) found in Hub.\n", len(conflicts))
-			fmt.Println("     Review and delete the .conflict-* files you no longer need,")
-			fmt.Println("     then run 'axon sync' to commit the resolution.")
 			allOK = false
+			printErr(r.Item, r.Message)
+			if r.Remediation != "" {
+				fmt.Printf("      Fix: %s\n", r.Remediation)
+			}
 		}
-	} else {
-		printWarn("", "skipped (axon.yaml not loaded)")
 	}
 	fmt.Println()
 
-	// ── Check 7: Symlink creation permission (Windows only) ──────────────────────
-	if runtime.GOOS == "windows" {
-		fmt.Println("[ Windows symlink permission ]")
-		if err := checkWindowsSymlinkPermission(); err != nil {
-			failD("Symlink creation will fail in this terminal — Administrator rights required.\n" +
-				"   Run axon in an Administrator terminal.\n" +
-				"   WSL users are not affected by this restriction.")
-		} else {
-			printOK("", "symlink creation permitted")
-		}
-		fmt.Println()
-	}
-
-	// ── Summary ──────────────────────────────────────────────────────────────────
 	fmt.Println("===================")
 	if allOK {
 		fmt.Println("✓  All checks passed. Axon is ready to use.")
@@ -241,41 +82,442 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// checkWindowsSymlinkPermission creates a throwaway symlink in the temp
-// directory to probe whether the current process has symlink privileges.
-func checkWindowsSymlinkPermission() error {
-	tmp := os.TempDir()
-	src := filepath.Join(tmp, "axon-doctor-src")
-	dst := filepath.Join(tmp, "axon-doctor-link")
-
-	// Create a temp source file.
-	if err := os.WriteFile(src, []byte("probe"), 0o644); err != nil {
+func runFixes(results []DiagnosticResult) error {
+	if err := checkGitAvailable(); err != nil {
 		return err
 	}
-	defer os.Remove(src)
-	defer os.Remove(dst)
 
-	return os.Symlink(src, dst)
+	var fixedCount int
+	var failedCount int
+
+	for _, r := range results {
+		if !r.Passed && r.CanFix && r.FixAction != nil {
+			fmt.Printf("Fixing %s", r.Category)
+			if r.Item != "" {
+				fmt.Printf(" > %s", r.Item)
+			}
+			fmt.Print("... ")
+
+			if err := r.FixAction(); err != nil {
+				fmt.Printf("FAILED: %v\n", err)
+				failedCount++
+			} else {
+				fmt.Println("OK")
+				fixedCount++
+			}
+		}
+	}
+
+	fmt.Println()
+	if fixedCount == 0 && failedCount == 0 {
+		printOK("", "No fixable issues found.")
+		return nil
+	}
+
+	if failedCount > 0 {
+		return fmt.Errorf("%d issue(s) could not be fixed", failedCount)
+	}
+
+	fmt.Printf("  ✓  %d issue(s) fixed successfully.\n", fixedCount)
+	return nil
 }
 
-// findConflictFiles walks repoPath and returns relative paths of all files
-// whose name contains ".conflict-" — these are leftover from axon init import.
-func findConflictFiles(repoPath string) []string {
-	var found []string
-	_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
+func gatherDiagnostics() []DiagnosticResult {
+	var results []DiagnosticResult
+
+	// 1. Git
+	results = append(results, checkGitDoctor()...)
+
+	// 2. Hub directory & config
+	cfgRes, cfg, loadErr := checkHubAndConfig()
+	results = append(results, cfgRes...)
+
+	if loadErr == nil && cfg != nil {
+		// 3. Hub Repo
+		results = append(results, checkHubRepo(cfg)...)
+
+		// 4. Git Health
+		results = append(results, checkGitHealth(cfg)...)
+
+		// 5. Symlinks
+		results = append(results, checkSymlinks(cfg)...)
+
+		// 6. Conflicts
+		results = append(results, checkConflicts(cfg)...)
+
+		// 7. Permission Sentinel
+		results = append(results, checkPermissions(cfg)...)
+
+		// 8. Binary Dependencies
+		results = append(results, checkBinaryDeps(cfg)...)
+	}
+
+	// 9. Windows symlink permission
+	if runtime.GOOS == "windows" {
+		results = append(results, checkWindowsSymlink()...)
+	}
+
+	return results
+}
+
+func checkGitDoctor() []DiagnosticResult {
+	cat := "git"
+	out, err := exec.Command("git", "--version").Output()
+	if err != nil {
+		return []DiagnosticResult{{
+			Category:    cat,
+			Passed:      false,
+			Message:     "git not found",
+			Remediation: "install Git: https://git-scm.com/downloads",
+		}}
+	}
+	return []DiagnosticResult{{
+		Category: cat,
+		Passed:   true,
+		Message:  strings.TrimSpace(string(out)),
+	}}
+}
+
+func checkHubAndConfig() ([]DiagnosticResult, *config.Config, error) {
+	catDir := "Hub directory"
+	catCfg := "axon.yaml"
+	var res []DiagnosticResult
+
+	axonDir, err := config.AxonDir()
+	if err != nil {
+		res = append(res, DiagnosticResult{
+			Category: catDir, Passed: false, Message: fmt.Sprintf("cannot determine home directory: %v", err),
+		})
+		return res, nil, err
+	}
+
+	cfgPath, _ := config.ConfigPath()
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		res = append(res, DiagnosticResult{
+			Category: catDir, Passed: false, Message: "~/.axon/axon.yaml not found", Remediation: "run 'axon init'",
+		})
+		return res, nil, err
+	}
+	res = append(res, DiagnosticResult{Category: catDir, Passed: true, Message: fmt.Sprintf("~/.axon/ exists: %s", axonDir)})
+
+	cfg, loadErr := config.Load()
+	if loadErr != nil {
+		res = append(res, DiagnosticResult{
+			Category: catCfg, Passed: false, Message: fmt.Sprintf("cannot parse axon.yaml: %v", loadErr), Remediation: "fix syntax in axon.yaml",
+		})
+		return res, nil, loadErr
+	}
+
+	res = append(res, DiagnosticResult{Category: catCfg, Passed: true, Message: fmt.Sprintf("valid YAML — %d target(s) defined", len(cfg.Targets))})
+
+	if cfg.RepoPath == "" {
+		res = append(res, DiagnosticResult{Category: catCfg, Passed: false, Message: "repo_path is empty", Remediation: "add repo_path to axon.yaml"})
+	}
+
+	return res, cfg, nil
+}
+
+func checkHubRepo(cfg *config.Config) []DiagnosticResult {
+	cat := "Hub repo"
+	gitDir := filepath.Join(cfg.RepoPath, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		return []DiagnosticResult{{
+			Category: cat, Passed: false, Message: fmt.Sprintf("Hub repo not initialised at %s", cfg.RepoPath), Remediation: "run 'axon init'",
+		}}
+	}
+	return []DiagnosticResult{{
+		Category: cat, Passed: true, Message: fmt.Sprintf("Git repo ready: %s", cfg.RepoPath),
+	}}
+}
+
+func checkGitHealth(cfg *config.Config) []DiagnosticResult {
+	cat := "Git Health"
+	var res []DiagnosticResult
+
+	// Check detached HEAD
+	cmdHead := exec.Command("git", "symbolic-ref", "-q", "HEAD")
+	cmdHead.Dir = cfg.RepoPath
+	if err := cmdHead.Run(); err != nil {
+		// Possibly detached HEAD
+		res = append(res, DiagnosticResult{
+			Category:    cat,
+			Passed:      false,
+			Message:     "Repository is in a detached HEAD state",
+			Remediation: "run 'git checkout main' (or the default branch) in the Hub directory",
+		})
+	} else {
+		res = append(res, DiagnosticResult{
+			Category: cat, Passed: true, Message: "HEAD is attached to a branch",
+		})
+	}
+
+	// Check diverged branch
+	cmdStatus := exec.Command("git", "status", "-sb")
+	cmdStatus.Dir = cfg.RepoPath
+	out, err := cmdStatus.Output()
+	if err == nil {
+		statusStr := string(out)
+		if strings.Contains(statusStr, "diverged") {
+			res = append(res, DiagnosticResult{
+				Category:    cat,
+				Passed:      false,
+				Message:     "Branch has diverged from upstream tracking branch",
+				Remediation: "run 'git pull --rebase' or resolve origin manually in the Hub directory",
+			})
 		}
-		name := d.Name()
-		// Match files like: foo.conflict-gemini-skills.md
-		if strings.Contains(name, ".conflict-") {
-			rel, relErr := filepath.Rel(repoPath, path)
-			if relErr != nil {
-				rel = path
+	}
+
+	return res
+}
+
+func checkSymlinks(cfg *config.Config) []DiagnosticResult {
+	cat := "Symlinks"
+	var res []DiagnosticResult
+
+	targets := make([]config.Target, len(cfg.Targets))
+	copy(targets, cfg.Targets)
+	sort.Slice(targets, func(i, j int) bool {
+		return targets[i].Name < targets[j].Name
+	})
+
+	for _, t := range targets {
+		dest, err := config.ExpandPath(t.Destination)
+		if err != nil {
+			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Message: fmt.Sprintf("cannot expand path: %v", err)})
+			continue
+		}
+
+		parent := filepath.Dir(dest)
+		if _, parentErr := os.Stat(parent); os.IsNotExist(parentErr) {
+			continue // Skip silently in doctor, target not installed
+		}
+
+		info, err := os.Lstat(dest)
+		if os.IsNotExist(err) {
+			targetName := t.Name // capture loop var
+			res = append(res, DiagnosticResult{
+				Category:    cat,
+				Item:        t.Name,
+				Passed:      false,
+				Message:     "not linked yet",
+				Remediation: fmt.Sprintf("run 'axon link %s'", targetName),
+				CanFix:      true,
+				FixAction: func() error {
+					return runLink(nil, []string{targetName})
+				},
+			})
+			continue
+		}
+		if err != nil {
+			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Message: fmt.Sprintf("stat error: %v", err)})
+			continue
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			res = append(res, DiagnosticResult{
+				Category:    cat,
+				Item:        t.Name,
+				Passed:      false,
+				Message:     fmt.Sprintf("real directory present at %s", dest),
+				Remediation: fmt.Sprintf("delete the folder and run 'axon link %s'", t.Name),
+			})
+			continue
+		}
+		expected := filepath.Join(cfg.RepoPath, t.Source)
+		actual, _ := os.Readlink(dest)
+		if actual != expected {
+			targetName := t.Name // capture
+			res = append(res, DiagnosticResult{
+				Category:    cat,
+				Item:        t.Name,
+				Passed:      false,
+				Message:     fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", actual, expected),
+				Remediation: fmt.Sprintf("run 'axon link %s'", targetName),
+				CanFix:      true,
+				FixAction: func() error {
+					return runLink(nil, []string{targetName})
+				},
+			})
+			continue
+		}
+		res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: true, Message: "OK"})
+	}
+
+	if len(res) == 0 {
+		res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "No active symlinks to check."})
+	}
+	return res
+}
+
+func checkConflicts(cfg *config.Config) []DiagnosticResult {
+	cat := "Unresolved conflicts"
+	var res []DiagnosticResult
+
+	conflicts := findConflictFiles(cfg.RepoPath)
+	if len(conflicts) == 0 {
+		return []DiagnosticResult{{Category: cat, Passed: true, Message: "no unresolved conflict files found"}}
+	}
+
+	for _, c := range conflicts {
+		relPath := c // capture
+		fullPath := filepath.Join(cfg.RepoPath, relPath)
+		res = append(res, DiagnosticResult{
+			Category:    cat,
+			Passed:      false,
+			Message:     fmt.Sprintf("unresolved conflict: %s", relPath),
+			Remediation: "run 'axon doctor --fix' to delete",
+			CanFix:      true,
+			FixAction: func() error {
+				return os.Remove(fullPath)
+			},
+		})
+	}
+	return res
+}
+
+func checkPermissions(cfg *config.Config) []DiagnosticResult {
+cat := "Permission Sentinel"
+var res []DiagnosticResult
+
+for _, t := range cfg.Targets {
+dest, err := config.ExpandPath(t.Destination)
+if err != nil {
+continue
+}
+parent := filepath.Dir(dest)
+if info, parentErr := os.Stat(parent); parentErr == nil && info.IsDir() {
+// Try writing a harmless temp file to the parent dir
+probePath := filepath.Join(parent, ".axon-probe-perms")
+err := os.WriteFile(probePath, []byte(""), 0644)
+if err != nil {
+res = append(res, DiagnosticResult{
+Category:    cat,
+Item:        t.Name,
+Passed:      false,
+Message:     fmt.Sprintf("no write permission in %s", parent),
+Remediation: fmt.Sprintf("fix permissions for %s to allow symlink creation", parent),
+})
+} else {
+os.Remove(probePath)
+res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: true, Message: "write permitted"})
+}
+}
+}
+
+if len(res) == 0 {
+res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "No directories to check permissions for."})
+}
+return res
+}
+
+func checkBinaryDeps(cfg *config.Config) []DiagnosticResult {
+	cat := "Binary Dependencies"
+	var res []DiagnosticResult
+
+	foundAny := false
+	seenBins := make(map[string]bool)
+
+	// Since the Hub is centralized, we just scan all SKILL.md files in the repository.
+	_ = filepath.WalkDir(cfg.RepoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && d.Name() == "SKILL.md" {
+			meta, hasMeta := parseSkillMeta(path)
+			if !hasMeta {
+				return nil
 			}
-			found = append(found, rel)
+
+			skillName := filepath.Base(filepath.Dir(path))
+			if meta.Name != "" {
+				skillName = meta.Name
+			}
+
+			for _, bin := range meta.GetRequiresBins() {
+				foundAny = true
+
+				// Deduplicate by bin + skillName
+				key := bin + "|" + skillName
+				if seenBins[key] {
+					continue
+				}
+				seenBins[key] = true
+
+				if _, err := exec.LookPath(bin); err != nil {
+					res = append(res, DiagnosticResult{
+						Category:    cat,
+						Item:        fmt.Sprintf("%s (%s)", bin, skillName),
+						Passed:      false,
+						Message:     fmt.Sprintf("binary '%s' not found in $PATH", bin),
+						Remediation: fmt.Sprintf("install %s and ensure it is in your PATH", bin),
+					})
+				} else {
+					res = append(res, DiagnosticResult{
+						Category: cat,
+						Item:     fmt.Sprintf("%s (%s)", bin, skillName),
+						Passed:   true,
+						Message:  "found in $PATH",
+					})
+				}
+			}
 		}
 		return nil
 	})
-	return found
+
+	if !foundAny {
+		res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "no binary dependencies declared"})
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].Item < res[j].Item
+	})
+
+	return res
+}
+
+func checkWindowsSymlink() []DiagnosticResult {
+cat := "Windows symlink permission"
+if err := checkWindowsSymlinkPermission(); err != nil {
+return []DiagnosticResult{{
+Category:    cat,
+Passed:      false,
+Message:     "Administrator rights required to create symlinks",
+Remediation: "Run axon in an Administrator terminal. WSL users are not affected.",
+}}
+}
+return []DiagnosticResult{{Category: cat, Passed: true, Message: "symlink creation permitted"}}
+}
+
+func checkWindowsSymlinkPermission() error {
+tmp := os.TempDir()
+src := filepath.Join(tmp, "axon-doctor-src")
+dst := filepath.Join(tmp, "axon-doctor-link")
+
+if err := os.WriteFile(src, []byte("probe"), 0o644); err != nil {
+return err
+}
+defer os.Remove(src)
+defer os.Remove(dst)
+
+return os.Symlink(src, dst)
+}
+
+func findConflictFiles(repoPath string) []string {
+var found []string
+_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
+if err != nil || d.IsDir() {
+return err
+}
+if strings.Contains(d.Name(), ".conflict-") {
+rel, relErr := filepath.Rel(repoPath, path)
+if relErr != nil {
+rel = path
+}
+found = append(found, rel)
+}
+return nil
+})
+return found
 }
