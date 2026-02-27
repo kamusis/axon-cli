@@ -288,7 +288,6 @@ func importExistingSkills(cfg *config.Config) error {
 	return nil
 }
 
-
 // dirHasContent reports whether dir exists and contains at least one entry.
 func dirHasContent(dir string) bool {
 	entries, err := os.ReadDir(dir)

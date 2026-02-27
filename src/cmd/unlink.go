@@ -210,7 +210,7 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 
 // latestBackup returns the path of the most recent backup directory for a
 // target, or "" if none exist.
-func latestBackup(cfg *config.Config, targetName string) (string, error) {
+func latestBackup(_ *config.Config, targetName string) (string, error) {
 	axonDir, err := config.AxonDir()
 	if err != nil {
 		return "", err

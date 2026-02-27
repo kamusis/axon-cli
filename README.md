@@ -55,6 +55,14 @@ axon sync
 | `axon status [--fetch]`   | Validate symlinks + show Hub git status               |
 | `axon doctor`             | Pre-flight environment check                          |
 | `axon inspect <skill>`    | Show metadata and structure of a skill                |
+| `axon update`             | Self-update axon to the latest GitHub release         |
+| `axon version`            | Show detailed version/build/runtime info              |
+
+Global flags:
+
+| Flag            | Description                         |
+| --------------- | ----------------------------------- |
+| `-v, --version` | Print axon version and exit         |
 
 ### `axon status --fetch`
 
@@ -90,6 +98,35 @@ Axon-layer exclude patterns (from `excludes:` in `axon.yaml`) are written to `.g
 To prevent cross-platform CRLF/LF churn, `axon init` also writes a default `.gitattributes` into the Hub repo (if missing): `* text=auto eol=lf`.
 
 **Embedded `.git` auto-strip:** Skills downloaded via `git clone` often contain their own `.git` directory. Axon automatically detects and removes nested `.git` dirs before each `git add` so skills are committed as regular content, not as unresolvable submodules. Original skill files are never touched — only the `.git` metadata folder is stripped.
+
+### `axon update` — Self Update
+
+`axon update` downloads the latest GitHub release for your platform, verifies its checksum (`checksums.txt`), and replaces the currently running binary (with rollback on failure).
+
+Common usage:
+
+```bash
+axon update --check
+axon update
+```
+
+Useful flags:
+
+- `--check`: check if an update is available (no download/install)
+- `--dry-run`: resolve release + asset without downloading
+- `--timeout`: overall timeout budget (default 30s)
+- `--force`: reinstall even if already on the latest version
+- `--repo owner/name`: override the default repo (default: `kamusis/axon-cli`)
+
+Optional environment variables (helpful for GitHub API rate limits in shared networks):
+
+- `AXON_GITHUB_TOKEN` (preferred)
+- `GITHUB_TOKEN` (fallback)
+
+Bootstrap note:
+
+- Self-update requires that the target release supports `-v/--version` for post-install verification.
+- Self-update is supported starting from `v0.2.0`. If you are on an older release, upgrade manually once to `v0.2.0` (or newer) before using `axon update`.
 
 ## Configuration
 

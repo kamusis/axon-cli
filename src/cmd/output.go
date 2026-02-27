@@ -30,8 +30,9 @@ func printBullet(title string) {
 }
 
 // printOK prints a success line.
-//   name = "" → "  ✓  msg"
-//   name set  → "  ✓  [name] msg"
+//
+//	name = "" → "  ✓  msg"
+//	name set  → "  ✓  [name] msg"
 func printOK(name, msg string) {
 	if name == "" {
 		fmt.Printf("  ✓  %s\n", msg)
