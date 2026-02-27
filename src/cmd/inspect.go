@@ -53,6 +53,37 @@ type skillMeta struct {
 		Bins []string `yaml:"bins"`
 		Envs []string `yaml:"envs"`
 	} `yaml:"requires"`
+
+	// OpenClaw Metadata standard nested fields
+	Metadata struct {
+		Requires struct {
+			Bins []string `yaml:"bins"`
+		} `yaml:"requires"`
+		OpenClaw struct {
+			Requires struct {
+				Bins []string `yaml:"bins"`
+			} `yaml:"requires"`
+		} `yaml:"openclaw"`
+	} `yaml:"metadata"`
+}
+
+// GetRequiresBins merges bins from legacy format and deep metadata openclaw format
+func (m *skillMeta) GetRequiresBins() []string {
+	var bins []string
+	bins = append(bins, m.Requires.Bins...)
+	bins = append(bins, m.Metadata.Requires.Bins...)
+	bins = append(bins, m.Metadata.OpenClaw.Requires.Bins...)
+
+	// Dedupe
+	seen := make(map[string]bool)
+	var unique []string
+	for _, b := range bins {
+		if !seen[b] && b != "" {
+			seen[b] = true
+			unique = append(unique, b)
+		}
+	}
+	return unique
 }
 
 func runInspect(_ *cobra.Command, args []string) error {

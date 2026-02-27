@@ -81,7 +81,18 @@ A dedicated interactive tool to handle the `.conflict-<tool>` files generated du
 
 ---
 
-## 5. Technical Considerations for Go Implementation
+## 5. `axon update` (Self-Auto-Update)
+Enables the CLI to maintain itself without manual intervention from the user.
+
+### Logic
+- **Discovery**: Use the GitHub API to fetch metadata from the `latest` release of `kamusis/axon-cli`.
+- **Validation**: Compare the local version string against the remote tag.
+- **Payload Selection**: Detect the host OS and CPU architecture to select the matching binary asset (e.g., `axon-darwin-arm64.tar.gz`).
+- **Execution**: Download to a temporary location, verify the checksum if available, and replace the current executable path.
+
+---
+
+## 6. Technical Considerations for Go Implementation
 - **YAML Handling**: Use `gopkg.in/yaml.v3` for robust frontmatter extraction.
 - **Glob Matching**: Use `path/filepath.Match` or a specialized globbing library for the `excludes` logic.
 - **Local DB**: If implementing semantic search, look for Go-native embedded DBs to maintain the "Single Binary" requirement.
