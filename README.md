@@ -4,7 +4,7 @@
 
 Axon keeps your AI-editor/CLI/agent skills, workflows, and commands in sync across all your machines using a single Git-backed Hub at `~/.axon/repo/`. One command to rule them all — `axon sync`.
 
-![axon-how-it-works](https://files.seeusercontent.com/2026/02/28/P1aq/vscode_picgo_1772257118828.png)
+![axon-how-it-works](https://files.seeusercontent.com/2026/02/28/rnQ5/vscode_picgo_1772260135208.jpeg)
 
 ---
 
@@ -81,6 +81,14 @@ If `origin/HEAD` is missing, re-run `axon remote set <url>` to initialize the re
 | **A** Local only      | `axon init`                               | `git init` in Hub; add remote later |
 | **B** Personal remote | `axon init git@github.com:you/skills.git` | Clone or init + set origin          |
 | **C** Public upstream | `axon init --upstream`                    | Clone public hub, read-only         |
+
+Axon ships with a default public upstream Hub at:
+
+`https://github.com/kamusis/axon-hub`
+
+This upstream repo is intended as an optional starting point (a curated baseline of skills/workflows/commands). It is used by `axon init --upstream` (Mode C).
+
+If you want to sync your Hub to **your own repo**, use `axon remote set <url>` to change the Hub's git `origin` remote (then run `axon sync`). Editing `upstream:` in `~/.axon/axon.yaml` only affects which repo `axon init --upstream` clones.
 
 During init, Axon **safely imports** your existing skills:
 
