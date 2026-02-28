@@ -68,6 +68,22 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	printOK("", fmt.Sprintf("Axon directory ready: %s", axonDir))
 
+	// ── 2b. Write ~/.axon/.env template if missing ────────────────────────────
+	dotEnvPath, err := config.DotEnvPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(dotEnvPath); os.IsNotExist(err) {
+		if err := config.EnsureDotEnvTemplate(); err != nil {
+			return err
+		}
+		printOK("", fmt.Sprintf("Dotenv template written: %s", dotEnvPath))
+	} else if err == nil {
+		printSkip("", fmt.Sprintf("Dotenv already exists: %s", dotEnvPath))
+	} else {
+		return fmt.Errorf("cannot stat dotenv file %s: %w", dotEnvPath, err)
+	}
+
 	// ── 3. Write axon.yaml if missing ─────────────────────────────────────────
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		cfg, err := config.DefaultConfig()
