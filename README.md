@@ -56,6 +56,7 @@ axon sync
 | `axon remote set <url>`   | Set or update the Hub's git remote origin URL         |
 | `axon status [--fetch]`   | Validate symlinks + show Hub git status               |
 | `axon doctor`             | Pre-flight environment check                          |
+| `axon search <query>`     | Search skills/workflows/commands (keyword + semantic) |
 | `axon inspect <skill>`    | Show metadata and structure of a skill                |
 | `axon update`             | Self-update axon to the latest GitHub release         |
 | `axon version`            | Show detailed version/build/runtime info              |
@@ -108,6 +109,65 @@ Axon-layer exclude patterns (from `excludes:` in `axon.yaml`) are written to `.g
 To prevent cross-platform CRLF/LF churn, `axon init` also writes a default `.gitattributes` into the Hub repo (if missing): `* text=auto eol=lf`.
 
 **Embedded `.git` auto-strip:** Skills downloaded via `git clone` often contain their own `.git` directory. Axon automatically detects and removes nested `.git` dirs before each `git add` so skills are committed as regular content, not as unresolvable submodules. Original skill files are never touched — only the `.git` metadata folder is stripped.
+
+### `axon search` — Keyword + Semantic
+
+`axon search` searches documents in your Hub repo (by default: `skills/`, `workflows/`, `commands/`). It supports:
+
+- Keyword search (offline)
+- Semantic search (requires a local index + embeddings provider)
+
+Default behavior:
+
+- Axon tries semantic search first.
+- If semantic search is unavailable, it falls back to keyword search.
+
+Common usage:
+
+```bash
+# Search (semantic when available; otherwise keyword fallback)
+axon search "database performance"
+
+# Force keyword-only
+axon search --keyword "git release"
+
+# Force semantic-only (errors if semantic search cannot be performed)
+axon search --semantic "postgres index"
+```
+
+#### Build / update the local semantic index
+
+Semantic search needs a local index under `~/.axon/search/`.
+
+```bash
+# Build or update the local semantic index
+axon search --index
+
+# Rebuild even if no changes detected
+axon search --index --force
+```
+
+ Indexing requires embeddings configuration. Axon resolves embeddings config from environment variables first, then `~/.axon/.env`:
+ 
+ - `AXON_EMBEDDINGS_PROVIDER` (currently: `openai`)
+ - `AXON_EMBEDDINGS_MODEL` (recommended: `text-embedding-3-small`)
+ - `AXON_EMBEDDINGS_API_KEY`
+ - `AXON_EMBEDDINGS_BASE_URL` (optional, default: `https://api.openai.com/v1`)
+ 
+ Notes:
+
+- The embeddings model must match the model used to build the index. If you change `AXON_EMBEDDINGS_MODEL`, rebuild the index.
+- Use `--debug` to see which index directory was used (and semantic fallback reasons).
+
+#### Flags
+
+- `--index`: build/update `~/.axon/search/`
+- `--keyword`: keyword search only
+- `--semantic`: semantic search only (no fallback)
+- `--k <int>`: number of results to show (default: `5`)
+- `--min-score <float>`: minimum cosine similarity (semantic only). If not specified, Axon applies a default threshold unless `--k` is explicitly set.
+- `--force`: force re-indexing (with `--index`)
+- `--debug`: print debug information
 
 ### `axon update` — Self Update
 
