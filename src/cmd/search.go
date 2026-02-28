@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/kamusis/axon-cli/internal/config"
@@ -78,11 +80,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 }
 
 func runSearchKeyword(cfg *config.Config, query string) error {
-	skills, err := search.DiscoverSkills(cfg.RepoPath)
+	docs, err := search.DiscoverDocuments(cfg.RepoPath, cfg.EffectiveSearchRoots())
 	if err != nil {
 		return err
 	}
-	results := search.KeywordSearch(skills, query, flagSearchK)
+	results := search.KeywordSearch(docs, query, flagSearchK)
 	printSearchResults(query, results)
 	return nil
 }
@@ -224,12 +226,67 @@ func tryLoadIndex(dir string) (*searchindex.Index, error) {
 func printSearchResults(query string, results []search.SearchResult) {
 	fmt.Printf("\naxon search %q\n\n", query)
 	fmt.Printf("Results (%d found):\n", len(results))
-	for i, r := range results {
-		if r.Why == "semantic" {
-			fmt.Printf("  %d. [%.3f] %-16s %-24s — %s\n", i+1, r.Score, r.Skill.ID, r.Skill.Path+"/", r.Skill.Description)
-			continue
+	if len(results) == 0 {
+		return
+	}
+
+	grouped := make(map[string][]search.SearchResult)
+	orderSeen := make(map[string]struct{})
+	groupOrder := make([]string, 0, 8)
+	for _, r := range results {
+		root := r.Skill.Path
+		if root == "" {
+			root = "(unknown)"
+		} else {
+			if i := strings.IndexByte(root, '/'); i >= 0 {
+				root = root[:i]
+			}
 		}
-		fmt.Printf("  %d. %-16s %-24s — %s\n", i+1, r.Skill.ID, r.Skill.Path+"/", r.Skill.Description)
+		if _, ok := orderSeen[root]; !ok {
+			orderSeen[root] = struct{}{}
+			groupOrder = append(groupOrder, root)
+		}
+		grouped[root] = append(grouped[root], r)
+	}
+
+	priority := map[string]int{"skills": 0, "workflows": 1, "commands": 2}
+	sort.SliceStable(groupOrder, func(i, j int) bool {
+		pi, okI := priority[groupOrder[i]]
+		pj, okJ := priority[groupOrder[j]]
+		if okI && okJ {
+			return pi < pj
+		}
+		if okI {
+			return true
+		}
+		if okJ {
+			return false
+		}
+		return groupOrder[i] < groupOrder[j]
+	})
+
+	for _, g := range groupOrder {
+		items := grouped[g]
+		fmt.Printf("\n%s (%d):\n", g, len(items))
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		for i, r := range items {
+			displayID := r.Skill.ID
+			if g != "skills" {
+				prefix := g + ":"
+				displayID = strings.TrimPrefix(displayID, prefix)
+				displayID = strings.ReplaceAll(displayID, ":", "/")
+			}
+
+			score := ""
+			if r.Why == "semantic" {
+				score = fmt.Sprintf("[%.3f]", r.Score)
+			}
+
+			fmt.Fprintf(w, "  %d.\t%s\t%s\n", i+1, score, displayID)
+			fmt.Fprintf(w, "  - %s\n", strings.TrimSpace(r.Skill.Description))
+		}
+		_ = w.Flush()
 	}
 }
 
@@ -271,6 +328,7 @@ func runSearchIndex(cmd *cobra.Command, cfg *config.Config) error {
 	_, err = searchindex.BuildUserIndex(ctx, prov, searchindex.BuildOptions{
 		RepoPath:  cfg.RepoPath,
 		OutDir:    tmpDir,
+		Roots:     cfg.EffectiveSearchRoots(),
 		Force:     flagSearchForce,
 		Normalize: true,
 	})

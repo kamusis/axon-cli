@@ -6,8 +6,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type frontmatterDoc map[string]string
-
 func splitFrontmatter(content string) (map[string]string, string) {
 	s := strings.TrimPrefix(content, "\ufeff")
 	if !strings.HasPrefix(s, "---") {

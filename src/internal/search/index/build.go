@@ -16,6 +16,7 @@ import (
 type BuildOptions struct {
 	RepoPath  string
 	OutDir    string
+	Roots     []string
 	Force     bool
 	Normalize bool
 }
@@ -32,12 +33,12 @@ func BuildUserIndex(ctx context.Context, prov embeddings.Provider, opts BuildOpt
 		return nil, fmt.Errorf("out dir is required")
 	}
 
-	skills, err := search.DiscoverSkills(opts.RepoPath)
+	skills, err := search.DiscoverDocuments(opts.RepoPath, opts.Roots)
 	if err != nil {
 		return nil, err
 	}
 	if len(skills) == 0 {
-		return nil, fmt.Errorf("no skills found under %s", opts.RepoPath)
+		return nil, fmt.Errorf("no documents found under %s", opts.RepoPath)
 	}
 
 	sort.Slice(skills, func(i, j int) bool { return skills[i].ID < skills[j].ID })

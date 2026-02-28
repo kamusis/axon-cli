@@ -26,6 +26,32 @@ type Config struct {
 	Targets  []Target `yaml:"targets,omitempty"`
 }
 
+// EffectiveSearchRoots derives the searchable top-level directories from configured targets.
+//
+// The intent is to avoid introducing a separate search_roots config item; instead, any new
+// content directory (e.g. rules/) will naturally appear as a new Target.Source.
+//
+// If no targets are configured (older configs), a backwards-compatible default is returned.
+func (c *Config) EffectiveSearchRoots() []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(c.Targets))
+	for _, t := range c.Targets {
+		s := strings.TrimSpace(t.Source)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return []string{"skills", "workflows", "commands"}
+	}
+	return out
+}
+
 // AxonDir returns the absolute path to ~/.axon/.
 func AxonDir() (string, error) {
 	home, err := os.UserHomeDir()
