@@ -4,6 +4,8 @@
 
 Axon keeps your AI-editor/CLI/agent skills, workflows, and commands in sync across all your machines using a single Git-backed Hub at `~/.axon/repo/`. One command to rule them all — `axon sync`.
 
+![axon-how-it-works](https://files.seeusercontent.com/2026/02/28/P1aq/vscode_picgo_1772257118828.png)
+
 ---
 
 ## How It Works
@@ -198,16 +200,18 @@ WSL is fully supported without these restrictions.
 
 | Tool        | Skills | Workflows | Commands |
 | ----------- | ------ | --------- | -------- |
-| Windsurf    | ✓      | ✓         | ✓        |
 | Antigravity | ✓      | ✓         |          |
-| Cursor      | ✓      |           |          |
-| OpenClaw    | ✓      | ✓         | ✓        |
-| OpenCode    | ✓      |           |          |
-| Neovate     | ✓      |           |          |
 | Claude Code | ✓      |           | ✓        |
-| Codex       | ✓      | ✓         | ✓        |
-| Gemini      | ✓      | ✓         | ✓        |
-| PearAI      | ✓      |           |          |
+| Codex       | ✓      |           |          |
+| Cursor      | ✓      |           |          |
+| Gemini      | ✓      |           | ✓        |
+| Neovate     | ✓      |           |          |
+| OpenClaw    | ✓      |           |          |
+| OpenCode    | ✓      |           |          |
+| Qoder       | ✓      |           | ✓        |
+| Trae        | ✓      |           |          |
+| VSCode      | ✓      |           |          |
+| Windsurf    | ✓      | ✓         |          |
 
 ## `axon inspect` — Skill Metadata
 
