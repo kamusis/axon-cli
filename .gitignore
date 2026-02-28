@@ -13,6 +13,7 @@ vendor/
 
 # ── Test / coverage ───────────────────────────────────────────────────────────
 *.test
+*.test.exe
 coverage.out
 coverage.html
 

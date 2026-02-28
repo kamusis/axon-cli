@@ -615,7 +615,7 @@ func writeFileFromReader(path string, r io.Reader, mode os.FileMode) error {
 
 // installWithRollback replaces currentPath with newPath, verifies the new binary, and rolls back on failure.
 func installWithRollback(currentPath, newPath, backupPath, expectedVersion string) error {
-	_ = os.Remove(backupPath)
+	_ = cleanupBackup(backupPath)
 	if err := os.Rename(currentPath, backupPath); err != nil {
 		return fmt.Errorf("cannot create backup: %w", err)
 	}
@@ -628,7 +628,7 @@ func installWithRollback(currentPath, newPath, backupPath, expectedVersion strin
 		_ = os.Rename(backupPath, currentPath)
 		return err
 	}
-	if err := os.Remove(backupPath); err != nil {
+	if err := cleanupBackup(backupPath); err != nil {
 		printWarn("", fmt.Sprintf("cannot remove backup: %v", err))
 	}
 	return nil

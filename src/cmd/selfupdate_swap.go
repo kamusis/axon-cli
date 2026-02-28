@@ -86,7 +86,7 @@ func runSelfUpdateSwap(cmd *cobra.Command, _ []string) error {
 		time.Sleep(250 * time.Millisecond)
 	}
 
-	_ = os.Remove(f.backup)
+	_ = cleanupBackup(f.backup)
 	if err := os.Rename(f.current, f.backup); err != nil {
 		return fmt.Errorf("cannot backup current binary: %w", err)
 	}
@@ -101,7 +101,7 @@ func runSelfUpdateSwap(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err := os.Remove(f.backup); err != nil {
+	if err := cleanupBackup(f.backup); err != nil {
 		printWarn("", fmt.Sprintf("cannot remove backup: %v", err))
 	}
 	printOK("", "Update applied successfully.")
