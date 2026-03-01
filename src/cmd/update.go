@@ -224,6 +224,7 @@ func fetchRelease(ctx context.Context, owner, repo string, allowPrerelease bool)
 		url = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases", owner, repo)
 	}
 
+	var tokenEnv string
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -231,15 +232,38 @@ func fetchRelease(ctx context.Context, owner, repo string, allowPrerelease bool)
 	req.Header.Set("User-Agent", "axon-cli")
 	if tok := os.Getenv("AXON_GITHUB_TOKEN"); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
+		tokenEnv = "AXON_GITHUB_TOKEN"
 	} else if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
+		tokenEnv = "GITHUB_TOKEN"
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github api request failed: %w", err)
 	}
+
+	if tokenEnv != "" && resp.StatusCode == http.StatusUnauthorized {
+		printWarn("", fmt.Sprintf("Authentication failed with %s. Retrying without authentication...", tokenEnv))
+		printInfo("", "If this keeps happening, unset the environment variable:")
+		fmt.Printf("  unset %s\n", tokenEnv)
+		fmt.Println()
+
+		_ = resp.Body.Close()
+
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "axon-cli")
+
+		resp, err = client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("github api request failed (retry): %w", err)
+		}
+	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		return nil, fmt.Errorf("github api request failed: %s\n%s", resp.Status, strings.TrimSpace(string(body)))
