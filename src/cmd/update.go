@@ -242,9 +242,8 @@ func fetchRelease(ctx context.Context, owner, repo string, allowPrerelease bool)
 	if err != nil {
 		return nil, fmt.Errorf("github api request failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if tokenEnv != "" && resp.StatusCode == 401 {
+	if tokenEnv != "" && resp.StatusCode == http.StatusUnauthorized {
 		printWarn("", fmt.Sprintf("Authentication failed with %s. Retrying without authentication...", tokenEnv))
 		printInfo("", "If this keeps happening, unset the environment variable:")
 		fmt.Printf("  unset %s\n", tokenEnv)
@@ -262,8 +261,8 @@ func fetchRelease(ctx context.Context, owner, repo string, allowPrerelease bool)
 		if err != nil {
 			return nil, fmt.Errorf("github api request failed (retry): %w", err)
 		}
-		defer resp.Body.Close()
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
