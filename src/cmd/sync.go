@@ -59,6 +59,21 @@ func runSync(cmd *cobra.Command, args []string) error {
 func syncReadWrite(cfg *config.Config) error {
 	repo := cfg.RepoPath
 
+	identityOK, identityErr := gitIdentityConfigured(repo)
+	if identityErr != nil {
+		return identityErr
+	}
+	if !identityOK {
+		return fmt.Errorf(
+			"Author identity unknown\n\n"+
+				"*** Please tell me who you are.\n\n"+
+				"Run\n\n"+
+				"  git config --global user.email \"you@example.com\"\n"+
+				"  git config --global user.name \"Your Name\"\n\n"+
+				"to set your account's default identity.\n"+
+				"Omit --global to set the identity only in this repository.")
+	}
+
 	// Check if there is a remote configured; push only if so.
 	hasRemote := gitHasRemote(repo)
 
@@ -227,6 +242,59 @@ func gitOutput(repoPath string, args ...string) (string, error) {
 	cmd.Stderr = &buf
 	err := cmd.Run()
 	return buf.String(), err
+}
+
+func gitOutputNoRepo(args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.String(), err
+}
+
+func gitConfigValueLocal(repoPath, key string) (string, error) {
+	out, err := gitOutput(repoPath, "config", "--local", "--get", key)
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func gitConfigValueGlobal(key string) (string, error) {
+	out, err := gitOutputNoRepo("config", "--global", "--get", key)
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func gitIdentityConfigured(repoPath string) (bool, error) {
+	localName, err := gitConfigValueLocal(repoPath, "user.name")
+	if err != nil {
+		return false, err
+	}
+	localEmail, err := gitConfigValueLocal(repoPath, "user.email")
+	if err != nil {
+		return false, err
+	}
+	if localName != "" && localEmail != "" {
+		return true, nil
+	}
+
+	globalName, err := gitConfigValueGlobal("user.name")
+	if err != nil {
+		return false, err
+	}
+	globalEmail, err := gitConfigValueGlobal("user.email")
+	if err != nil {
+		return false, err
+	}
+	if globalName != "" && globalEmail != "" {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // stripNestedGitDirs walks the Hub working tree and removes any .git directory
