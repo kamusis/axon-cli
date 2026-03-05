@@ -29,3 +29,6 @@ Thumbs.db
 
 # ── Release artifacts (GoReleaser) ────────────────────────────────────────────
 dist/
+
+# ── Communities Promotion ─────────────────────────────────────────────────────
+/communities

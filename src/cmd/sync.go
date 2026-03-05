@@ -244,25 +244,8 @@ func gitOutput(repoPath string, args ...string) (string, error) {
 	return buf.String(), err
 }
 
-func gitOutputNoRepo(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	err := cmd.Run()
-	return buf.String(), err
-}
-
-func gitConfigValueLocal(repoPath, key string) (string, error) {
-	out, err := gitOutput(repoPath, "config", "--local", "--get", key)
-	if err != nil {
-		return "", nil
-	}
-	return strings.TrimSpace(out), nil
-}
-
-func gitConfigValueGlobal(key string) (string, error) {
-	out, err := gitOutputNoRepo("config", "--global", "--get", key)
+func gitConfigValue(repoPath, key string) (string, error) {
+	out, err := gitOutput(repoPath, "config", "--get", key)
 	if err != nil {
 		return "", nil
 	}
@@ -270,27 +253,15 @@ func gitConfigValueGlobal(key string) (string, error) {
 }
 
 func gitIdentityConfigured(repoPath string) (bool, error) {
-	localName, err := gitConfigValueLocal(repoPath, "user.name")
+	name, err := gitConfigValue(repoPath, "user.name")
 	if err != nil {
 		return false, err
 	}
-	localEmail, err := gitConfigValueLocal(repoPath, "user.email")
+	email, err := gitConfigValue(repoPath, "user.email")
 	if err != nil {
 		return false, err
 	}
-	if localName != "" && localEmail != "" {
-		return true, nil
-	}
-
-	globalName, err := gitConfigValueGlobal("user.name")
-	if err != nil {
-		return false, err
-	}
-	globalEmail, err := gitConfigValueGlobal("user.email")
-	if err != nil {
-		return false, err
-	}
-	if globalName != "" && globalEmail != "" {
+	if name != "" && email != "" {
 		return true, nil
 	}
 
