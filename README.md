@@ -47,19 +47,20 @@ axon sync
 
 ## Commands
 
-| Command                   | Description                                           |
-| ------------------------- | ----------------------------------------------------- |
-| `axon init [repo-url]`    | Bootstrap the Hub; import existing skills             |
-| `axon link [name\|all]`   | Create symlinks from tool dirs to the Hub             |
-| `axon unlink [name\|all]` | Remove symlinks; restore backups if available         |
-| `axon sync`               | Commit → pull → push (or pull-only in read-only mode) |
-| `axon remote set <url>`   | Set or update the Hub's git remote origin URL         |
-| `axon status [--fetch]`   | Validate symlinks + show Hub git status               |
-| `axon doctor`             | Pre-flight environment check                          |
-| `axon search <query>`     | Search skills/workflows/commands (keyword + semantic) |
-| `axon inspect <skill>`    | Show metadata and structure of a skill                |
-| `axon update`             | Self-update axon to the latest GitHub release         |
-| `axon version`            | Show detailed version/build/runtime info              |
+| Command                        | Description                                           |
+| ------------------------------ | ----------------------------------------------------- |
+| `axon init [repo-url]`         | Bootstrap the Hub; import existing skills             |
+| `axon link [name\|all]`        | Create symlinks from tool dirs to the Hub             |
+| `axon unlink [name\|all]`      | Remove symlinks; restore backups if available         |
+| `axon sync`                    | Commit → pull → push (or pull-only in read-only mode) |
+| `axon remote set <url>`        | Set or update the Hub's git remote origin URL         |
+| `axon status [skill-name]`     | Validate symlinks + Hub git status; or show skill history |
+| `axon rollback <skill\|--all>` | Revert a skill or the entire Hub to a previous commit |
+| `axon doctor`                  | Pre-flight environment check                          |
+| `axon search <query>`          | Search skills/workflows/commands (keyword + semantic) |
+| `axon inspect <skill>`         | Show metadata and structure of a skill                |
+| `axon update`                  | Self-update axon to the latest GitHub release         |
+| `axon version`                 | Show detailed version/build/runtime info              |
 
 Global flags:
 
@@ -154,6 +155,67 @@ To prevent cross-platform CRLF/LF churn, `axon init` also writes a default `.git
 Add `--fetch` to also fetch `origin` and show whether your local Hub branch is ahead/behind the remote default branch. If the remote is newer, run `axon sync` to pull updates.
 
 If `origin/HEAD` is missing, re-run `axon remote set <url>` to initialize the remote default branch reference.
+
+Pass an optional `skill-name` to switch to **skill-level inspection mode** — shows the skill's resolved path, whether it is currently linked, and its recent commit history:
+
+```bash
+axon status humanizer
+axon status humanizer --fetch   # also show remote ahead/behind count for this skill
+```
+
+```
+=== Skill: humanizer ===
+  Path:    /home/user/.axon/repo/skills/humanizer
+  Linked:  ✓
+
+● Recent commits:
+  #1   abc1234  2026-03-05 14:20   axon: sync from mac-mini
+  #2   def5678  2026-03-04 10:15   axon: sync from vps-1
+```
+
+### `axon rollback`
+
+`axon rollback` reverts a skill directory or the entire Hub to a previous commit **without requiring any Git knowledge**. It always creates a new forward commit (never rewrites history), so `axon sync` can safely propagate the rollback to all your machines.
+
+```bash
+# Revert one skill to the previous commit
+axon rollback humanizer
+
+# Revert one skill to a specific commit
+axon rollback humanizer --revision abc1234
+
+# Revert the entire Hub one commit back
+axon rollback --all
+
+# Revert the entire Hub to a specific commit
+axon rollback --all --revision abc1234
+```
+
+The command prints a summary before acting:
+
+```
+[ Rollback ]
+  Skill:   humanizer
+  Current: axon: sync from mac-mini (2026-03-05 14:20)
+  Target:  axon: sync from vps-1   (2026-03-04 10:15)
+
+  Reverting skills/humanizer... DONE
+✓ Skill "humanizer" rolled back to def5678. Run 'axon sync' to propagate.
+```
+
+**Key behaviours:**
+
+- Refuses to run if the Hub has uncommitted changes — commit or stash first.
+- Use `axon status <skill-name>` to browse recent commits and find a target SHA before rolling back.
+- Running `axon rollback` twice on the same target cancels out (the second run reverts the first). To go back multiple steps, use `--revision <sha>` to target a specific commit directly.
+- After rolling back, run `axon sync` to push the revert commit to your remote and pull it on other machines.
+
+Flags:
+
+| Flag | Description |
+|---|---|
+| `--all` | Revert the entire Hub (mutually exclusive with a skill name) |
+| `--revision <sha>` | Target a specific Git SHA, tag, or branch instead of the previous commit |
 
 ### `axon inspect` — Skill Metadata
 

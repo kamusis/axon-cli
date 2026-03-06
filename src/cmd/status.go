@@ -14,8 +14,9 @@ import (
 )
 
 var statusCmd = &cobra.Command{
-	Use:   "status",
+	Use:   "status [skill-name]",
 	Short: "Validate symlinks and show Hub Git status",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runStatus,
 }
 
@@ -30,6 +31,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)
 	}
 
+	// Skill-level mode: axon status <skill-name>
+	if len(args) == 1 {
+		if err := checkGitAvailable(); err != nil {
+			return err
+		}
+		fetchFirst, _ := cmd.Flags().GetBool("fetch")
+		return showSkillStatus(cfg, args[0], fetchFirst)
+	}
 	// Sort targets alphabetically by name.
 	targets := make([]config.Target, len(cfg.Targets))
 	copy(targets, cfg.Targets)
@@ -193,5 +202,87 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("git status failed: %w", err)
 	}
 	fmt.Print(string(out))
+	return nil
+}
+
+// showSkillStatus prints focused status for a single skill: path, link state,
+// recent commit history, and (with --fetch) a remote comparison.
+func showSkillStatus(cfg *config.Config, skillName string, fetchFirst bool) error {
+	// Resolve the skill path relative to the repo root.
+	skillPath, err := resolveSkillPath(cfg.RepoPath, skillName)
+	if err != nil {
+		return err
+	}
+	absSkillPath := filepath.Join(cfg.RepoPath, skillPath)
+
+	fmt.Printf("\n=== Skill: %s ===\n", skillName)
+	fmt.Printf("  Path:    %s\n", absSkillPath)
+
+	linked := false
+	for _, t := range cfg.Targets {
+		// A skill is "linked" if its path is exactly a target source,
+		// or if its path is within a target source directory (e.g. source is "skills"),
+		// or if a target source is within this skill directory.
+		if t.Source == skillPath ||
+			strings.HasPrefix(skillPath, t.Source+"/") ||
+			strings.HasPrefix(t.Source, skillPath+"/") {
+			linked = true
+			break
+		}
+	}
+	if linked {
+		fmt.Printf("  Linked:  ✓\n")
+	} else {
+		fmt.Printf("  Linked:  ✗  (not found in axon.yaml targets)\n")
+	}
+
+	// Optionally fetch remote before comparing.
+	if fetchFirst && gitHasRemote(cfg.RepoPath) {
+		printInfo("", "Fetching remote updates (origin)...")
+		fetchOut, fetchErr := exec.Command("git", "-C", cfg.RepoPath, "fetch", "--prune", "origin").CombinedOutput()
+		if fetchErr != nil {
+			trimmed := strings.TrimSpace(string(fetchOut))
+			if trimmed == "" {
+				return fmt.Errorf("git fetch failed: %w", fetchErr)
+			}
+			return fmt.Errorf("git fetch failed:\n%s", trimmed)
+		}
+		printOK("", "Fetch complete.")
+	}
+
+	// Recent commit history scoped to this skill path.
+	entries, err := gitLogEntries(cfg.RepoPath, skillPath, 0, 10)
+	if err != nil {
+		return fmt.Errorf("cannot read commit history: %w", err)
+	}
+
+	fmt.Println("\n● Recent commits:")
+	if len(entries) == 0 {
+		fmt.Println("  (no commits found for this skill path)")
+	} else {
+		for i, e := range entries {
+			fmt.Printf("  #%-2d  %s  %s   %s\n", i+1, e.sha, e.date, e.subject)
+		}
+	}
+
+	// Remote comparison (requires --fetch).
+	if fetchFirst && gitHasRemote(cfg.RepoPath) {
+		originHead, originErr := exec.Command("git", "-C", cfg.RepoPath,
+			"rev-parse", "--abbrev-ref", "origin/HEAD").Output()
+		if originErr == nil {
+			compareRef := strings.TrimSpace(string(originHead))
+			// Count commits on each side that touch this skill path.
+			// git rev-list does not support --left-right with path filters directly;
+			// so we count separately.
+			localCount, _ := gitOutput(cfg.RepoPath, "rev-list", "--count", compareRef+"..HEAD", "--", skillPath)
+			remoteCount, _ := gitOutput(cfg.RepoPath, "rev-list", "--count", "HEAD.."+compareRef, "--", skillPath)
+			ahead := strings.TrimSpace(localCount)
+			behind := strings.TrimSpace(remoteCount)
+			if ahead != "" && behind != "" {
+				fmt.Printf("\n  Remote: %s  (skill ahead %s / behind %s)\n", compareRef, ahead, behind)
+			}
+		}
+	}
+
 	return nil
 }
