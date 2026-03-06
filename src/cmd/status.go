@@ -274,12 +274,14 @@ func showSkillStatus(cfg *config.Config, skillName string, fetchFirst bool) erro
 			// Count commits on each side that touch this skill path.
 			// git rev-list does not support --left-right with path filters directly;
 			// so we count separately.
-			localCount, _ := gitOutput(cfg.RepoPath, "rev-list", "--count", compareRef+"..HEAD", "--", skillPath)
-			remoteCount, _ := gitOutput(cfg.RepoPath, "rev-list", "--count", "HEAD.."+compareRef, "--", skillPath)
-			ahead := strings.TrimSpace(localCount)
-			behind := strings.TrimSpace(remoteCount)
-			if ahead != "" && behind != "" {
-				fmt.Printf("\n  Remote: %s  (skill ahead %s / behind %s)\n", compareRef, ahead, behind)
+			localCount, localErr := gitOutput(cfg.RepoPath, "rev-list", "--count", compareRef+"..HEAD", "--", skillPath)
+			remoteCount, remoteErr := gitOutput(cfg.RepoPath, "rev-list", "--count", "HEAD.."+compareRef, "--", skillPath)
+			if localErr == nil && remoteErr == nil {
+				ahead := strings.TrimSpace(localCount)
+				behind := strings.TrimSpace(remoteCount)
+				if ahead != "" && behind != "" {
+					fmt.Printf("\n  Remote: %s  (skill ahead %s / behind %s)\n", compareRef, ahead, behind)
+				}
 			}
 		}
 	}

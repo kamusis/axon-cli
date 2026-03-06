@@ -29,7 +29,7 @@ axon rollback --all --revision <sha-or-tag>      # reset entire Hub to exact rev
 - `rollbackCmd`: Definition with `--all` and `--revision` flags.
 - `runRollback`: Main entry point with dirty-check and resolution logic.
 - `rollbackSkill(repoPath, skillName, revision)`: Reverts a skill by checking out target SHA and committing.
-- `rollbackHubAll(repoPath, revision)`: Resets the entire Hub using `reset --hard`.
+- `rollbackHubAll(repoPath, revision)`: Reverts the Hub using `git revert` (forward revert commits; no history rewrite).
 - **`resolveSkillPath(repoPath, name)`**: Checks if `name` exists at root, or in `skills/`, `workflows/`, or `commands/`. Returns the relative path.
 - `gitCommitInfo`, `gitLogEntries`: Helpers for formatted Git output.
 

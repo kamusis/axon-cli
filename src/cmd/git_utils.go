@@ -105,7 +105,12 @@ func gitRemoteIsEmpty(repoPath string) bool {
 func gitConfigValue(repoPath, key string) (string, error) {
 	out, err := gitOutput(repoPath, "config", "--get", key)
 	if err != nil {
-		return "", nil
+		// `git config --get` exits with 1 if the key is not found.
+		// Treat that case as an empty value, but propagate other errors.
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return "", nil
+		}
+		return "", err
 	}
 	return strings.TrimSpace(out), nil
 }
