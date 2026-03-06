@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -202,99 +201,6 @@ func writeGitExcludes(cfg *config.Config) error {
 	body := strings.Join(cfg.Excludes, "\n") + "\n"
 
 	return os.WriteFile(excludeFile, []byte(header+body), 0o644)
-}
-
-// gitIsDirty reports whether the repo has uncommitted changes.
-func gitIsDirty(repoPath string) (bool, error) {
-	out, err := gitOutput(repoPath, "status", "--porcelain")
-	if err != nil {
-		return false, fmt.Errorf("git status: %w", err)
-	}
-	return strings.TrimSpace(out) != "", nil
-}
-
-// gitHasRemote reports whether the repo has any remote configured.
-func gitHasRemote(repoPath string) bool {
-	out, err := gitOutput(repoPath, "remote")
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(out) != ""
-}
-
-// gitRemoteIsEmpty reports whether the remote has no refs at all (i.e. it is a
-// brand-new empty repository that has never received a push).
-func gitRemoteIsEmpty(repoPath string) bool {
-	out, err := gitOutput(repoPath, "ls-remote", "--heads", "origin")
-	if err != nil {
-		// ls-remote failure (e.g. auth error) — treat as non-empty to be safe.
-		return false
-	}
-	return strings.TrimSpace(out) == ""
-}
-
-// gitOutput runs a git sub-command and returns its combined stdout output.
-func gitOutput(repoPath string, args ...string) (string, error) {
-	fullArgs := append([]string{"-C", repoPath}, args...)
-	cmd := exec.Command("git", fullArgs...)
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	err := cmd.Run()
-	return buf.String(), err
-}
-
-func gitOutputNoRepo(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	err := cmd.Run()
-	return buf.String(), err
-}
-
-func gitConfigValueLocal(repoPath, key string) (string, error) {
-	out, err := gitOutput(repoPath, "config", "--local", "--get", key)
-	if err != nil {
-		return "", nil
-	}
-	return strings.TrimSpace(out), nil
-}
-
-func gitConfigValueGlobal(key string) (string, error) {
-	out, err := gitOutputNoRepo("config", "--global", "--get", key)
-	if err != nil {
-		return "", nil
-	}
-	return strings.TrimSpace(out), nil
-}
-
-func gitIdentityConfigured(repoPath string) (bool, error) {
-	localName, err := gitConfigValueLocal(repoPath, "user.name")
-	if err != nil {
-		return false, err
-	}
-	localEmail, err := gitConfigValueLocal(repoPath, "user.email")
-	if err != nil {
-		return false, err
-	}
-	if localName != "" && localEmail != "" {
-		return true, nil
-	}
-
-	globalName, err := gitConfigValueGlobal("user.name")
-	if err != nil {
-		return false, err
-	}
-	globalEmail, err := gitConfigValueGlobal("user.email")
-	if err != nil {
-		return false, err
-	}
-	if globalName != "" && globalEmail != "" {
-		return true, nil
-	}
-
-	return false, nil
 }
 
 // stripNestedGitDirs walks the Hub working tree and removes any .git directory

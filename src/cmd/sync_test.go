@@ -135,3 +135,42 @@ func TestGitHasRemote(t *testing.T) {
 		t.Error("fresh local repo should have no remote")
 	}
 }
+
+func TestGitIdentityConfigured_LocalIdentity(t *testing.T) {
+	cfg, _ := initTestRepo(t)
+
+	ok, err := gitIdentityConfigured(cfg.RepoPath)
+	if err != nil {
+		t.Fatalf("gitIdentityConfigured returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected identity to be configured from local repo config")
+	}
+}
+
+func TestGitIdentityConfigured_MixedLocalAndGlobalIdentity(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := gitRun("-C", repo, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := gitRun("-C", repo, "config", "--global", "user.email", "global@example.com"); err != nil {
+		t.Fatalf("git config --global user.email: %v", err)
+	}
+	if err := gitRun("-C", repo, "config", "--local", "user.name", "Local Name"); err != nil {
+		t.Fatalf("git config --local user.name: %v", err)
+	}
+
+	ok, err := gitIdentityConfigured(repo)
+	if err != nil {
+		t.Fatalf("gitIdentityConfigured returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected identity to be configured when name/email come from different scopes")
+	}
+}
