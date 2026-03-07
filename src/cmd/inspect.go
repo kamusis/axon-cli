@@ -13,19 +13,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+/*
+Axon Inspect Icon Matrix
+*/
+const (
+	inspectIconSkill    = "⧉" // Skill Folder      - Standard directory-based skill package
+	inspectIconWorkflow = "≡" // Workflow          - Standard .md file in the workflows/ directory
+	inspectIconCommand  = "$" // Command           - Standard .md file in commands/
+	inspectIconRule     = "‡" // Rule              - Standard .md file in the rules/ directory
+	inspectIconFolder   = "◇" // User-defined category folder (directory)
+	inspectIconFile     = "⬦" // User-defined category standalone .md file
+)
+
 var inspectCmd = &cobra.Command{
-	Use:   "inspect <skill-name>",
-	Short: "Show metadata and structure of a skill or target",
-	Long: `Display a formatted summary of a skill in the Hub, including its
+	Use:   "inspect <name>",
+	Short: "Show metadata and structure of a skill, workflow or target",
+	Long: `Display a formatted summary of an item in the Hub, including its
 description, triggers, scripts, and declared dependencies.
 
 The argument can be either:
   - A skill folder name inside the Hub (e.g. humanizer)
+  - A workflow or rule file name (e.g. codebase-review.md)
   - A target name from axon.yaml (e.g. windsurf-skills)
 
 Example:
   axon inspect humanizer
-  axon inspect oracle-health-check`,
+  axon inspect codebase-review.md
+  axon inspect windsurf-skills`,
 	Args: cobra.ExactArgs(1),
 	RunE: runInspect,
 }
@@ -94,60 +108,76 @@ func runInspect(_ *cobra.Command, args []string) error {
 
 	arg := args[0]
 
-	dirs, err := resolveSkillDirs(cfg, arg)
+	paths, err := resolveInspectPaths(cfg, arg)
 	if err != nil {
 		return err
 	}
 
-	for i, skillDir := range dirs {
+	for i, p := range paths {
 		if i > 0 {
 			fmt.Println(strings.Repeat("─", 50))
 		}
-		printInspect(skillDir)
+		printInspect(p)
 	}
 	return nil
 }
 
-// resolveSkillDirs finds all skill directories matching arg.
-// Exact name match (skill folder or target name) is tried first.
-// If no exact match, falls back to substring/fuzzy matching on all skill folders.
-func resolveSkillDirs(cfg *config.Config, arg string) ([]string, error) {
-	// Collect unique source roots.
+func resolveInspectPaths(cfg *config.Config, arg string) ([]string, error) {
 	sourceRoots := uniqueSourceRoots(cfg)
+	isMD := strings.HasSuffix(strings.ToLower(arg), ".md")
 
-	// 1. Exact match: look for a subfolder named exactly arg.
+	// 1. Exact match.
 	for _, root := range sourceRoots {
+		if isMD && filepath.Base(root) == "skills" {
+			continue
+		}
 		candidate := filepath.Join(root, arg)
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		if _, err := os.Stat(candidate); err == nil {
 			return []string{candidate}, nil
 		}
 	}
 
-	// 2. Exact match: target name.
+	// 2. Target name match.
 	for _, t := range cfg.Targets {
 		if t.Name == arg {
 			dir := filepath.Join(cfg.RepoPath, t.Source)
-			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			if _, err := os.Stat(dir); err == nil {
 				return []string{dir}, nil
 			}
 		}
 	}
 
-	// 3. Fuzzy: substring match on skill folder names (case-insensitive).
+	// 3. Fuzzy search.
 	lower := strings.ToLower(arg)
 	seen := map[string]bool{}
 	var matches []string
 	for _, root := range sourceRoots {
+		if isMD && filepath.Base(root) == "skills" {
+			continue
+		}
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if !e.IsDir() || e.Name() == ".git" {
+			name := e.Name()
+			if name == ".git" {
 				continue
 			}
-			if strings.Contains(strings.ToLower(e.Name()), lower) {
-				full := filepath.Join(root, e.Name())
+			// Policy: if arg has .md, we only look for .md files.
+			// If not, we only look for directories (skills).
+			if isMD {
+				if e.IsDir() || !strings.HasSuffix(strings.ToLower(name), ".md") {
+					continue
+				}
+			} else {
+				if !e.IsDir() {
+					continue
+				}
+			}
+
+			if strings.Contains(strings.ToLower(name), lower) {
+				full := filepath.Join(root, name)
 				if !seen[full] {
 					seen[full] = true
 					matches = append(matches, full)
@@ -160,7 +190,7 @@ func resolveSkillDirs(cfg *config.Config, arg string) ([]string, error) {
 		return matches, nil
 	}
 
-	return nil, fmt.Errorf("skill or target %q not found in Hub.\nTip: run 'axon status' to see available targets.", arg)
+	return nil, fmt.Errorf("item %q not found in Hub.\nTip: run 'axon list' to see available items.", arg)
 }
 
 // uniqueSourceRoots returns the unique parent directories of all target sources.
@@ -183,18 +213,61 @@ func uniqueSourceRoots(cfg *config.Config) []string {
 	return roots
 }
 
-// printInspect displays the formatted inspection output for one skill directory.
-func printInspect(skillDir string) {
-	meta, hasMeta := parseSkillMeta(filepath.Join(skillDir, "SKILL.md"))
-	files := listSkillFiles(skillDir)
-	scripts := listExecutables(filepath.Join(skillDir, "scripts"))
+// printInspect displays the formatted inspection output for one path.
+func printInspect(itemPath string) {
+	info, err := os.Stat(itemPath)
+	if err != nil {
+		fmt.Printf("Error accessing path: %v\n", err)
+		return
+	}
+	isDir := info.IsDir()
 
-	name := filepath.Base(skillDir)
+	var meta skillMeta
+	var hasMeta bool
+	if isDir {
+		meta, hasMeta = parseSkillMeta(filepath.Join(itemPath, "SKILL.md"))
+	} else {
+		meta, hasMeta = parseSkillMeta(itemPath)
+	}
+
+	name := filepath.Base(itemPath)
+	if !isDir {
+		name = strings.TrimSuffix(name, filepath.Ext(name))
+	}
 	if meta.Name != "" {
 		name = meta.Name
 	}
 
-	fmt.Printf("📦 Skill: %s\n", name)
+	// Determine icon and label based on category (parent directory) and type.
+	category := filepath.Base(filepath.Dir(itemPath))
+	if category == "." || category == "/" || category == "" {
+		category = "Item"
+	}
+
+	icon := inspectIconFile // Default: Small Diamond (Custom File)
+	label := strings.Title(category)
+
+	if isDir {
+		icon = inspectIconFolder // Default: Large Diamond (Custom Folder)
+		if strings.ToLower(category) == "skills" || strings.ToLower(category) == "." {
+			icon = inspectIconSkill
+			label = "Skill Folder"
+		}
+	} else {
+		switch strings.ToLower(category) {
+		case "workflows":
+			icon = inspectIconWorkflow
+			label = "Workflow"
+		case "commands":
+			icon = inspectIconCommand
+			label = "Command"
+		case "rules":
+			icon = inspectIconRule
+			label = "Rule"
+		}
+	}
+	fmt.Printf("%s %s: %s\n", icon, label, name)
+
 	if meta.Version != "" {
 		fmt.Printf("Version:  %s\n", meta.Version)
 	}
@@ -203,7 +276,11 @@ func printInspect(skillDir string) {
 		fmt.Printf("Summary:  %s\n", desc)
 	}
 	if !hasMeta {
-		fmt.Printf("  (no SKILL.md found)\n")
+		if isDir {
+			fmt.Printf("  (no SKILL.md found)\n")
+		} else {
+			fmt.Printf("  (no metadata found)\n")
+		}
 	}
 
 	if triggers := extractTriggers(meta.Triggers); len(triggers) > 0 {
@@ -215,18 +292,26 @@ func printInspect(skillDir string) {
 	if len(meta.AllowedTools) > 0 {
 		fmt.Printf("\nAllowed Tools: %s\n", strings.Join(meta.AllowedTools, ", "))
 	}
-	if len(files) > 0 {
-		fmt.Println("\nFiles:")
-		for _, f := range files {
-			fmt.Printf("  - %s\n", f)
+
+	// For directories, show files and scripts.
+	if isDir {
+		files := listSkillFiles(itemPath)
+		scripts := listExecutables(filepath.Join(itemPath, "scripts"))
+
+		if len(files) > 0 {
+			fmt.Println("\nFiles:")
+			for _, f := range files {
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+		if len(scripts) > 0 {
+			fmt.Println("\nScripts:")
+			for _, s := range scripts {
+				fmt.Printf("  - scripts/%s (Executable)\n", s)
+			}
 		}
 	}
-	if len(scripts) > 0 {
-		fmt.Println("\nScripts:")
-		for _, s := range scripts {
-			fmt.Printf("  - scripts/%s (Executable)\n", s)
-		}
-	}
+
 	if len(meta.Requires.Bins) > 0 || len(meta.Requires.Envs) > 0 {
 		fmt.Println("\nDependencies (declared):")
 		for _, b := range meta.Requires.Bins {
@@ -244,7 +329,7 @@ func printInspect(skillDir string) {
 			fmt.Printf("  env: %-20s %s\n", e, status)
 		}
 	}
-	fmt.Printf("\nPath: %s\n", skillDir)
+	fmt.Printf("\nPath: %s\n", itemPath)
 }
 
 // parseSkillMeta reads and parses the YAML frontmatter from a SKILL.md file.
