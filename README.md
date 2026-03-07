@@ -47,26 +47,27 @@ axon sync
 
 ## Commands
 
-| Command                        | Description                                           |
-| ------------------------------ | ----------------------------------------------------- |
-| `axon init [repo-url]`         | Bootstrap the Hub; import existing skills             |
-| `axon link [name\|all]`        | Create symlinks from tool dirs to the Hub             |
-| `axon unlink [name\|all]`      | Remove symlinks; restore backups if available         |
-| `axon sync`                    | Commit → pull → push (or pull-only in read-only mode) |
-| `axon remote set <url>`        | Set or update the Hub's git remote origin URL         |
+| Command                        | Description                                               |
+| ------------------------------ | --------------------------------------------------------- |
+| `axon init [repo-url]`         | Bootstrap the Hub; import existing skills                 |
+| `axon link [name\|all]`        | Create symlinks from tool dirs to the Hub                 |
+| `axon unlink [name\|all]`      | Remove symlinks; restore backups if available             |
+| `axon sync`                    | Commit → pull → push (or pull-only in read-only mode)     |
+| `axon remote set <url>`        | Set or update the Hub's git remote origin URL             |
 | `axon status [skill-name]`     | Validate symlinks + Hub git status; or show skill history |
-| `axon rollback <skill\|--all>` | Revert a skill or the entire Hub to a previous commit |
-| `axon doctor`                  | Pre-flight environment check                          |
-| `axon search <query>`          | Search skills/workflows/commands (keyword + semantic) |
-| `axon inspect <skill>`         | Show metadata and structure of a skill                |
-| `axon update`                  | Self-update axon to the latest GitHub release         |
-| `axon version`                 | Show detailed version/build/runtime info              |
+| `axon rollback <skill\|--all>` | Revert a skill or the entire Hub to a previous commit     |
+| `axon doctor`                  | Pre-flight environment check                              |
+| `axon list`                    | List local items grouped by category from axon.yaml       |
+| `axon search <query>`          | Search skills/workflows/commands (keyword + semantic)     |
+| `axon inspect <skill>`         | Show metadata and structure of a skill                    |
+| `axon update`                  | Self-update axon to the latest GitHub release             |
+| `axon version`                 | Show detailed version/build/runtime info                  |
 
 Global flags:
 
-| Flag            | Description                         |
-| --------------- | ----------------------------------- |
-| `-v, --version` | Print axon version and exit         |
+| Flag            | Description                 |
+| --------------- | --------------------------- |
+| `-v, --version` | Print axon version and exit |
 
 ### `axon init` — Three Modes
 
@@ -212,9 +213,9 @@ The command prints a summary before acting:
 
 Flags:
 
-| Flag | Description |
-|---|---|
-| `--all` | Revert the entire Hub (mutually exclusive with a skill name) |
+| Flag               | Description                                                              |
+| ------------------ | ------------------------------------------------------------------------ |
+| `--all`            | Revert the entire Hub (mutually exclusive with a skill name)             |
 | `--revision <sha>` | Target a specific Git SHA, tag, or branch instead of the previous commit |
 
 ### `axon inspect` — Skill Metadata
@@ -228,6 +229,36 @@ axon inspect windsurf-skills  # by target name
 ```
 
 Parses `SKILL.md` frontmatter and shows: name, version, description, triggers, allowed tools, scripts, and declared dependencies (`requires.bins` / `requires.envs` with live availability check).
+
+### `axon list` — Local Inventory
+
+`axon list` provides a lightweight overview of all items currently in your local Hub repository, grouped by category (e.g., `skills`, `workflows`, `commands`, `rules`).
+
+```bash
+axon list
+```
+
+Categories are derived from the unique `source:` paths in your `axon.yaml`. For each category, Axon scans the immediate children and displays them with a minimal icon:
+
+- `+` for directories (e.g., typical skill folders)
+- `·` for files (e.g., flat markdown workflows or rules)
+
+Example output:
+
+```text
+=== Local Inventory ===
+
+● Skills
+  +  algorithmic-art
+  +  brainstorming
+
+● Workflows
+  ·  access-database.md
+  ·  codebase-review.md
+
+● Commands
+  -  (empty)
+```
 
 ### `axon search` — Keyword + Semantic
 
@@ -266,14 +297,14 @@ axon search --index
 axon search --index --force
 ```
 
- Indexing requires embeddings configuration. Axon resolves embeddings config from environment variables first, then `~/.axon/.env`:
- 
- - `AXON_EMBEDDINGS_PROVIDER` (currently: `openai`)
- - `AXON_EMBEDDINGS_MODEL` (recommended: `text-embedding-3-small`)
- - `AXON_EMBEDDINGS_API_KEY`
- - `AXON_EMBEDDINGS_BASE_URL` (optional, default: `https://api.openai.com/v1`)
- 
- Notes:
+Indexing requires embeddings configuration. Axon resolves embeddings config from environment variables first, then `~/.axon/.env`:
+
+- `AXON_EMBEDDINGS_PROVIDER` (currently: `openai`)
+- `AXON_EMBEDDINGS_MODEL` (recommended: `text-embedding-3-small`)
+- `AXON_EMBEDDINGS_API_KEY`
+- `AXON_EMBEDDINGS_BASE_URL` (optional, default: `https://api.openai.com/v1`)
+
+Notes:
 
 - The embeddings model must match the model used to build the index. If you change `AXON_EMBEDDINGS_MODEL`, rebuild the index.
 - Use `--debug` to see which index directory was used (and semantic fallback reasons).

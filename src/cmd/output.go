@@ -18,6 +18,8 @@ import (
 //   ~  neutral info / state change
 //   ↑  backup created
 //   ↓  backup restored
+//   +  folder / directory
+//   ·  file / item
 
 // printSection prints a top-level section header, e.g. "=== Link ===".
 func printSection(title string) {
@@ -84,4 +86,9 @@ func printInfo(name, msg string) {
 	} else {
 		fmt.Printf("  ~  [%s] %s\n", name, msg)
 	}
+}
+
+// printListItem prints a bulleted list item with a custom icon.
+func printListItem(icon, name string) {
+	fmt.Printf("  %s  %s\n", icon, name)
 }
