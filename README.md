@@ -61,6 +61,7 @@ axon sync
 | `axon search <query>`          | Search skills/workflows/commands (keyword + semantic)     |
 | `axon inspect <skill>`         | Show metadata and structure of a skill                    |
 | `axon update`                  | Self-update axon to the latest GitHub release             |
+| `axon vendor sync`             | Mirror external GitHub subdirs into the Hub               |
 | `axon version`                 | Show detailed version/build/runtime info                  |
 
 Global flags:
@@ -348,34 +349,69 @@ Bootstrap note:
 - Self-update requires that the target release supports `-v/--version` for post-install verification.
 - Self-update is supported starting from `v0.2.0`. If you are on an older release, upgrade manually once to `v0.2.0` (or newer) before using `axon update`.
 
+### `axon vendor sync` — External Imports
+
+`axon vendor sync` allows you to populate your Hub with selected content from external GitHub repositories without the complexity of Git submodules. It clones external repos to a persistent cache (`~/.axon/cache/vendors`), performs an efficient **sparse-checkout** of the requested subdirectory, and mirrors the plain files into your Hub.
+
+This is perfect for importing curated skills or workflows from community repositories.
+
+```bash
+# Sync all vendors configured in axon.yaml
+axon vendor sync
+```
+
+**How it works:**
+
+- It uses a **force-overwrite** strategy: local changes in the Hub destination will be overwritten by the upstream source.
+- Content in the Hub is just **plain files**; no `.git` metadata from the source is imported, keeping your Hub's own Git history clean.
+- It calculates a manifest of the last-synced Git SHA for each vendor. If the SHA hasn't changed, it skips the mirror step.
+
+#### Configuration Example
+
+Add a `vendors:` section to your `~/.axon/axon.yaml`:
+
+```yaml
+vendors:
+  - name: extra-skills
+    repo: https://github.com/someuser/cool-skills.git
+    subdir: skills/coding
+    dest: skills/coding
+    ref: main # optional, defaults to main
+```
+
+- `name`: Unique identifier for the vendor entry.
+- `repo`: The Git URL of the external repository.
+- `subdir`: The directory inside the external repo you want to import.
+- `dest`: The destination path relative to your Hub root (`~/.axon/repo/`).
+- `ref`: (Optional) The Git branch, tag, or SHA to pin to.
+
 ## Configuration
 
-`~/.axon/axon.yaml` is generated automatically by `axon init`. Edit it to add or remove targets.
+`~/.axon/axon.yaml` is generated automatically by `axon init`. It contains your Hub path and pre-configured targets for various AI tools. You can manually edit it to add or remove targets, or to configure **external sources** (vendors).
 
 ```yaml
 repo_path: ~/.axon/repo
 sync_mode: read-write
 upstream: https://github.com/kamusis/axon-hub.git
 
-excludes:
-  - .DS_Store
-  - Thumbs.db
-  - "*.tmp"
-  - "*.log"
-  # ... more patterns
+# ... (excludes section)
 
 targets:
+  # ... (pre-configured tool targets)
   - name: windsurf-skills
     source: skills
     destination: ~/.codeium/windsurf/skills
     type: directory
+  # ... other targets
 
-  - name: antigravity-workflows
-    source: workflows
-    destination: ~/.gemini/antigravity/global_workflows
-    type: directory
-
-  # ... other targets pre-configured out of the box
+# === USER ADDED: External Sources (Optional) ===
+# These are synced via `axon vendor sync`
+vendors:
+  - name: community-skill
+    repo: https://github.com/kamusis/axon-hub.git
+    subdir: skills/community-skill
+    dest: skills/community-skill
+    ref: main
 ```
 
 ## Prerequisites
@@ -383,6 +419,7 @@ targets:
 | Dependency | Required | Notes                                                                                                                                    |
 | ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **git**    | ✅ Hard  | Must be installed and on `PATH`. Axon uses `git` for all Hub operations (`init`, `link`, `sync`, `remote`). Run `axon doctor` to verify. |
+| **rsync**  | 💡 Soft  | Highly recommended for `axon vendor sync`. If missing, Axon falls back to `rm` + `cp`.                                                   |
 
 If `git` is not found, affected commands will exit immediately with a clear error message.
 

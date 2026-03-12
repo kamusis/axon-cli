@@ -17,6 +17,15 @@ type Target struct {
 	Type        string `yaml:"type"`
 }
 
+// Vendor represents a single external repo/subdir source entry in axon.yaml.
+type Vendor struct {
+	Name   string `yaml:"name"`
+	Repo   string `yaml:"repo"`
+	Subdir string `yaml:"subdir"`
+	Dest   string `yaml:"dest"`
+	Ref    string `yaml:"ref,omitempty"`
+}
+
 // Config is the in-memory representation of ~/.axon/axon.yaml.
 type Config struct {
 	RepoPath string   `yaml:"repo_path"`
@@ -24,6 +33,7 @@ type Config struct {
 	Upstream string   `yaml:"upstream,omitempty"`
 	Excludes []string `yaml:"excludes,omitempty"`
 	Targets  []Target `yaml:"targets,omitempty"`
+	Vendors  []Vendor `yaml:"vendors,omitempty"`
 }
 
 // EffectiveSearchRoots derives the searchable top-level directories from configured targets.
