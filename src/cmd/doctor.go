@@ -166,16 +166,44 @@ func checkGitDoctor() []DiagnosticResult {
 	if err != nil {
 		return []DiagnosticResult{{
 			Category:    cat,
+			Item:        "installed",
 			Passed:      false,
 			Message:     "git not found",
 			Remediation: "install Git: https://git-scm.com/downloads",
 		}}
 	}
-	return []DiagnosticResult{{
+
+	var res []DiagnosticResult
+
+	// Check git is installed and report version.
+	res = append(res, DiagnosticResult{
 		Category: cat,
+		Item:     "installed",
 		Passed:   true,
 		Message:  strings.TrimSpace(string(out)),
-	}}
+	})
+
+	// Check minimum version required for partial clone (--filter=blob:none).
+	// vendor sync degrades gracefully when this is not met, but warn the user.
+	const minMajor, minMinor = 2, 28
+	if err := CheckGitMinVersion(minMajor, minMinor); err != nil {
+		res = append(res, DiagnosticResult{
+			Category:    cat,
+			Item:        "version",
+			Passed:      false,
+			Message:     fmt.Sprintf("git < %d.%d: partial clone (--filter=blob:none) unavailable, vendor sync will use full clone", minMajor, minMinor),
+			Remediation: "upgrade git to 2.28 or later: https://git-scm.com/downloads",
+		})
+	} else {
+		res = append(res, DiagnosticResult{
+			Category: cat,
+			Item:     "version",
+			Passed:   true,
+			Message:  fmt.Sprintf("meets minimum requirement (>= %d.%d)", minMajor, minMinor),
+		})
+	}
+
+	return res
 }
 
 func checkHubAndConfig() ([]DiagnosticResult, *config.Config, error) {

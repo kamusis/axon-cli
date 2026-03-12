@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/kamusis/axon-cli/internal/gitutil"
 )
 
 // resolveSkillPath finds a skill/workflow/command by its shorthand name.
@@ -51,6 +53,15 @@ func checkGitAvailable() error {
 			"  Install git from https://git-scm.com and try again.")
 	}
 	return nil
+}
+
+// CheckGitMinVersion verifies that the installed git meets the minimum required
+// version (major.minor). Returns a descriptive error if git is not found or the
+// version is too old, and nil when the requirement is satisfied.
+//
+// Example: CheckGitMinVersion(2, 28) requires git >= 2.28.
+func CheckGitMinVersion(requiredMajor, requiredMinor int) error {
+	return gitutil.CheckMinVersion(requiredMajor, requiredMinor)
 }
 
 // gitRun executes a git sub-command and streams output to stdout/stderr.
