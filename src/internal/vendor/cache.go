@@ -212,20 +212,25 @@ func AddSparseCheckoutDir(cachePath, subdir string) error {
 }
 
 // SubdirLatestSHA returns the latest commit SHA that touched subdir under the
-// given gitRef inside cachePath.  gitRef may be any expression git log accepts
+// given gitRef inside cachePath. gitRef may be any expression git log accepts
 // (HEAD, origin/main, a tag, or a commit SHA).
 //
-// Returns ("", nil) when git log produces no output — this happens on a fresh
-// clone where no checkout has been performed yet, or when subdir has never
-// been committed.  The caller should treat an empty SHA as "unknown" and
-// proceed with the sync rather than skipping it.
+// Returns ("", nil) if the subdir has never been committed or the ref is unknown,
+// but returns an error for other git log failures (e.g. repository corruption).
 func SubdirLatestSHA(cachePath, gitRef, subdir string) (string, error) {
 	cmd := exec.Command("git", "-C", cachePath, "log", "-1", "--format=%H", gitRef, "--", subdir)
 	out, err := cmd.Output()
 	if err != nil {
 		// git log may exit non-zero when gitRef doesn't exist yet (fresh clone,
-		// tag not yet fetched, etc.). Treat as unknown rather than hard error.
-		return "", nil
+		// tag not yet fetched, etc.). In these specific "ref not found" cases,
+		// we return empty SHA with no error so the caller proceeds with sync.
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr := string(ee.Stderr)
+			if strings.Contains(stderr, "unknown revision") || strings.Contains(stderr, "ambiguous argument") {
+				return "", nil
+			}
+		}
+		return "", fmt.Errorf("git log failed in %s: %w", cachePath, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

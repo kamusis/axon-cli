@@ -141,8 +141,16 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 	//    processed HEAD advances to origin/<ref>, making every subsequent
 	//    entry appear current even if its subdir was never mirrored.
 	remoteRef := "origin/" + ref
-	remoteSHA, _ := vendor.SubdirLatestSHA(cachePath, remoteRef, v.Subdir)
-	storedSHA, _ := vendor.ReadVendorSHA(v.Name)
+	remoteSHA, err := vendor.SubdirLatestSHA(cachePath, remoteRef, v.Subdir)
+	if err != nil {
+		// Log a warning if we can't get remote SHA, but keep going.
+		printWarn(v.Name, fmt.Sprintf("could not determine remote SHA: %v", err))
+	}
+	storedSHA, err := vendor.ReadVendorSHA(v.Name)
+	if err != nil {
+		// Log a warning if we can't read stored SHA, but keep going.
+		printWarn(v.Name, fmt.Sprintf("could not read stored SHA: %v", err))
+	}
 
 	if storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA {
 		printOK(v.Name, fmt.Sprintf(
