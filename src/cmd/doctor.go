@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
+	"github.com/kamusis/axon-cli/internal/gitutil"
 	"github.com/spf13/cobra"
 )
 
@@ -183,23 +184,22 @@ func checkGitDoctor() []DiagnosticResult {
 		Message:  strings.TrimSpace(string(out)),
 	})
 
-	// Check minimum version required for partial clone (--filter=blob:none).
-	// vendor sync degrades gracefully when this is not met, but warn the user.
-	const minMajor, minMinor = 2, 28
-	if err := CheckGitMinVersion(minMajor, minMinor); err != nil {
-		res = append(res, DiagnosticResult{
-			Category:    cat,
-			Item:        "version",
-			Passed:      false,
-			Message:     fmt.Sprintf("git < %d.%d: partial clone (--filter=blob:none) unavailable, vendor sync will use full clone", minMajor, minMinor),
-			Remediation: "upgrade git to 2.28 or later: https://git-scm.com/downloads",
-		})
-	} else {
+	// Partial clone (--filter=blob:none) requires git >= 2.28. When not met,
+	// vendor sync uses full clone; report as passed with a degraded-mode message.
+	if gitutil.SupportsPartialClone() {
 		res = append(res, DiagnosticResult{
 			Category: cat,
 			Item:     "version",
 			Passed:   true,
-			Message:  fmt.Sprintf("meets minimum requirement (>= %d.%d)", minMajor, minMinor),
+			Message:  "meets minimum requirement (>= 2.28)",
+		})
+	} else {
+		res = append(res, DiagnosticResult{
+			Category:    cat,
+			Item:        "version",
+			Passed:      true,
+			Message:     "git < 2.28: partial clone (--filter=blob:none) unavailable, vendor sync will use full clone (upgrade optional)",
+			Remediation: "upgrade to 2.28+ for partial clone: https://git-scm.com/downloads",
 		})
 	}
 
