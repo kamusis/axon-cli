@@ -152,7 +152,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 		sort.Strings(tools)
 		printBullet("Not installed (skipped):")
 		for _, name := range tools {
-			fmt.Printf("  ○  %s\n", name)
+			printSkip("", name)
 		}
 	}
 	if len(errors) > 0 {

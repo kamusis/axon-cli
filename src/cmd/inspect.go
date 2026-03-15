@@ -315,16 +315,16 @@ func printInspect(itemPath string) {
 	if len(meta.Requires.Bins) > 0 || len(meta.Requires.Envs) > 0 {
 		fmt.Println("\nDependencies (declared):")
 		for _, b := range meta.Requires.Bins {
-			status := "✓ Found"
+			status := "Found"
 			if _, err := exec.LookPath(b); err != nil {
-				status = "✗ Not found"
+				status = "Not found"
 			}
 			fmt.Printf("  bin: %-20s %s\n", b, status)
 		}
 		for _, e := range meta.Requires.Envs {
-			status := "✓ Set"
+			status := "Set"
 			if os.Getenv(e) == "" {
-				status = "✗ Not set"
+				status = "Not set"
 			}
 			fmt.Printf("  env: %-20s %s\n", e, status)
 		}

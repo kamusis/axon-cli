@@ -169,7 +169,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Println("\n✓  axon init complete. Run 'axon status' to verify your environment.")
+	printOK("", "axon init complete. Run 'axon status' to verify your environment.")
 	return nil
 }
 
@@ -248,10 +248,10 @@ func importExistingSkills(cfg *config.Config) error {
 	}
 
 	// ── Print grouped output ───────────────────────────────────────────────────
-	fmt.Println("\n=== Import Existing Skills ===")
+	printSection("Import Existing Skills")
 
 	if len(imported) > 0 {
-		fmt.Println("\n● Imported:")
+		printBullet("Imported:")
 		for _, e := range imported {
 			r := e.result
 			// Derive singular label from source: "skills"→"skill", "workflows"→"workflow", etc.
@@ -259,41 +259,42 @@ func importExistingSkills(cfg *config.Config) error {
 			if label == "" {
 				label = "item"
 			}
-			fmt.Printf("  ✓  [%s] %d %s(s) imported, %d skipped, %d conflict(s)  (%d file(s))\n",
-				e.name,
+			printOK(e.name, fmt.Sprintf(
+				"%d %s(s) imported, %d skipped, %d conflict(s)  (%d file(s))",
 				r.SkillsImported,
 				label,
 				r.SkillsSkipped,
 				r.SkillsConflicts,
-				r.Imported+r.Skipped)
+				r.Imported+r.Skipped,
+			))
 		}
 	}
 
 	if len(alreadyLinked) > 0 {
-		fmt.Println("\n● Already linked (Hub manages these):")
+		printBullet("Already linked (Hub manages these):")
 		for _, name := range alreadyLinked {
-			fmt.Printf("  ○  [%s]\n", name)
+			printSkip(name, "")
 		}
 	}
 
 	if len(notFound) > 0 {
-		fmt.Println("\n● Destination not found:")
+		printBullet("Destination not found:")
 		for _, name := range notFound {
-			fmt.Printf("  -  [%s]\n", name)
+			printMiss(name, "")
 		}
 	}
 
 	if len(notInstalled) > 0 {
 		sort.Strings(notInstalled)
-		fmt.Println("\n● Not installed (skipped):")
+		printBullet("Not installed (skipped):")
 		for _, name := range notInstalled {
-			fmt.Printf("  ○  %s\n", name)
+			printSkip("", name)
 		}
 	}
 
 	// ── Post-import conflict report ────────────────────────────────────────────
 	if len(totalConflicts) > 0 {
-		fmt.Printf("\n⚠  %d conflict(s) detected during import.\n", len(totalConflicts))
+		printWarn("", fmt.Sprintf("%d conflict(s) detected during import.", len(totalConflicts)))
 		fmt.Printf("   All versions have been preserved in %s.\n", cfg.RepoPath)
 		fmt.Println("   Please review and resolve the following files manually:")
 		for _, c := range totalConflicts {

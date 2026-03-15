@@ -33,11 +33,19 @@ type DiagnosticResult struct {
 	Category    string
 	Item        string
 	Passed      bool
+	Severity    DiagnosticSeverity
 	Message     string
 	Remediation string
 	CanFix      bool
 	FixAction   func() error
 }
+
+type DiagnosticSeverity string
+
+const (
+	DiagnosticSeverityError DiagnosticSeverity = "error"
+	DiagnosticSeverityWarn  DiagnosticSeverity = "warn"
+)
 
 func runDoctor(_ *cobra.Command, _ []string) error {
 	printSection("axon doctor")
@@ -49,7 +57,8 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		return runFixes(results)
 	}
 
-	allOK := true
+	hasErrors := false
+	hasWarnings := false
 	var currentCategory string
 
 	for _, r := range results {
@@ -63,23 +72,32 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 
 		if r.Passed {
 			printOK(r.Item, r.Message)
+			continue
+		}
+
+		if r.Severity == DiagnosticSeverityWarn {
+			hasWarnings = true
+			printWarn(r.Item, r.Message)
 		} else {
-			allOK = false
+			hasErrors = true
 			printErr(r.Item, r.Message)
-			if r.Remediation != "" {
-				fmt.Printf("      Fix: %s\n", r.Remediation)
-			}
+		}
+		if r.Remediation != "" {
+			fmt.Printf("      Fix: %s\n", r.Remediation)
 		}
 	}
 	fmt.Println()
 
 	fmt.Println("===================")
-	if allOK {
-		fmt.Println("✓  All checks passed. Axon is ready to use.")
-	} else {
-		fmt.Fprintln(os.Stderr, "✗  One or more checks failed. See details above.")
+	if hasErrors {
+		printErr("", "One or more checks failed. See details above.")
 		return fmt.Errorf("doctor found issues")
 	}
+	if hasWarnings {
+		printWarn("", "Doctor found no issues, but some warnings were detected.")
+		return nil
+	}
+	printOK("", "All checks passed. Axon is ready to use.")
 	return nil
 }
 
@@ -119,7 +137,7 @@ func runFixes(results []DiagnosticResult) error {
 		return fmt.Errorf("%d issue(s) could not be fixed", failedCount)
 	}
 
-	fmt.Printf("  ✓  %d issue(s) fixed successfully.\n", fixedCount)
+	printOK("", fmt.Sprintf("%d issue(s) fixed successfully.", fixedCount))
 	return nil
 }
 
@@ -311,7 +329,7 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 	for _, t := range targets {
 		dest, err := config.ExpandPath(t.Destination)
 		if err != nil {
-			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Message: fmt.Sprintf("cannot expand path: %v", err)})
+			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Severity: DiagnosticSeverityError, Message: fmt.Sprintf("cannot expand path: %v", err)})
 			continue
 		}
 
@@ -327,6 +345,7 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 				Category:    cat,
 				Item:        t.Name,
 				Passed:      false,
+				Severity:    DiagnosticSeverityWarn,
 				Message:     "not linked yet",
 				Remediation: fmt.Sprintf("run 'axon link %s'", targetName),
 				CanFix:      true,
@@ -337,7 +356,7 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 			continue
 		}
 		if err != nil {
-			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Message: fmt.Sprintf("stat error: %v", err)})
+			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Severity: DiagnosticSeverityError, Message: fmt.Sprintf("stat error: %v", err)})
 			continue
 		}
 		if info.Mode()&os.ModeSymlink == 0 {
@@ -345,6 +364,7 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 				Category:    cat,
 				Item:        t.Name,
 				Passed:      false,
+				Severity:    DiagnosticSeverityWarn,
 				Message:     fmt.Sprintf("real directory present at %s", dest),
 				Remediation: fmt.Sprintf("delete the folder and run 'axon link %s'", t.Name),
 			})
@@ -358,6 +378,7 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 				Category:    cat,
 				Item:        t.Name,
 				Passed:      false,
+				Severity:    DiagnosticSeverityWarn,
 				Message:     fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", actual, expected),
 				Remediation: fmt.Sprintf("run 'axon link %s'", targetName),
 				CanFix:      true,

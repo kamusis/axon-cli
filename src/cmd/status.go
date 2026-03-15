@@ -46,7 +46,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return targets[i].Name < targets[j].Name
 	})
 
-	fmt.Println("=== Symlink Health ===")
+	printSection("Symlink Health")
 
 	var linked, needLink, realDir, broken []string
 	notInstalledMap := make(map[string]bool)
@@ -56,7 +56,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	for _, t := range targets {
 		dest, err := config.ExpandPath(t.Destination)
 		if err != nil {
-			broken = append(broken, fmt.Sprintf("  ✗  [%s] cannot expand path: %v", t.Name, err))
+			broken = append(broken, fmt.Sprintf("[%s] cannot expand path: %v", t.Name, err))
 			continue
 		}
 
@@ -80,56 +80,56 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 		switch {
 		case os.IsNotExist(err):
-			needLink = append(needLink, fmt.Sprintf("  -  [%s] not linked  (run: axon link %s)", t.Name, t.Name))
+			needLink = append(needLink, t.Name)
 
 		case err != nil:
-			broken = append(broken, fmt.Sprintf("  ✗  [%s] stat error: %v", t.Name, err))
+			broken = append(broken, fmt.Sprintf("[%s] stat error: %v", t.Name, err))
 
 		case info.Mode()&os.ModeSymlink == 0:
-			realDir = append(realDir, fmt.Sprintf("  !  [%s] real directory — run 'axon link %s' to convert (original will be backed up)", t.Name, t.Name))
+			realDir = append(realDir, t.Name)
 
 		default:
 			target, err := os.Readlink(dest)
 			if err != nil {
-				broken = append(broken, fmt.Sprintf("  ✗  [%s] cannot read symlink: %v", t.Name, err))
+				broken = append(broken, fmt.Sprintf("[%s] cannot read symlink: %v", t.Name, err))
 			} else if target != expected {
-				broken = append(broken, fmt.Sprintf("  ✗  [%s] wrong target:\n      got:  %s\n      want: %s", t.Name, target, expected))
+				broken = append(broken, fmt.Sprintf("[%s] wrong target:\n      got:  %s\n      want: %s", t.Name, target, expected))
 			} else {
-				linked = append(linked, fmt.Sprintf("  ✓  [%s]", t.Name))
+				linked = append(linked, t.Name)
 			}
 		}
 	}
 
 	// Print grouped output.
 	if len(linked) > 0 {
-		fmt.Println("\n● Linked (healthy symlinks):")
+		printBullet("Linked (healthy symlinks):")
 		for _, s := range linked {
-			fmt.Println(s)
+			printOK(s, "OK")
 		}
 	}
 	if len(realDir) > 0 {
-		fmt.Println("\n● Real directories (not yet converted to symlinks):")
+		printBullet("Real directories (not yet converted to symlinks):")
 		for _, s := range realDir {
-			fmt.Println(s)
+			printWarn(s, fmt.Sprintf("real directory — run 'axon link %s' to convert (original will be backed up)", s))
 		}
 	}
 	if len(needLink) > 0 {
-		fmt.Println("\n● Installed but not linked:")
+		printBullet("Installed but not linked:")
 		for _, s := range needLink {
-			fmt.Println(s)
+			printMiss(s, "not linked (run: axon link "+s+")")
 		}
 	}
 	if len(broken) > 0 {
-		fmt.Println("\n● Errors:")
+		printBullet("Errors:")
 		for _, s := range broken {
-			fmt.Println(s)
+			printErr("", s)
 		}
 	}
 	if len(notInstalled) > 0 {
-		fmt.Println("\n● Not installed (skipped):")
+		printBullet("Not installed (skipped):")
 		sort.Strings(notInstalled)
 		for _, s := range notInstalled {
-			fmt.Printf("  ○  %s\n", s)
+			printSkip("", s)
 		}
 	}
 
@@ -137,7 +137,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\n  %d linked / %d real dir / %d not linked / %d not installed (tools) / %d error  (total: %d targets)\n",
 		len(linked), len(realDir), len(needLink), len(notInstalled), len(broken), total)
 
-	fmt.Println("\n=== Hub Git Status ===")
+	printSection("Hub Git Status")
 	if err := checkGitAvailable(); err != nil {
 		printWarn("", "git not available — skipping Hub Git status.")
 		return nil
@@ -215,7 +215,7 @@ func showSkillStatus(cfg *config.Config, skillName string, fetchFirst bool) erro
 	}
 	absSkillPath := filepath.Join(cfg.RepoPath, skillPath)
 
-	fmt.Printf("\n=== Skill: %s ===\n", skillName)
+	printSection(fmt.Sprintf("Skill: %s", skillName))
 	fmt.Printf("  Path:    %s\n", absSkillPath)
 
 	linked := false
@@ -231,9 +231,9 @@ func showSkillStatus(cfg *config.Config, skillName string, fetchFirst bool) erro
 		}
 	}
 	if linked {
-		fmt.Printf("  Linked:  ✓\n")
+		printOK("Linked", "yes")
 	} else {
-		fmt.Printf("  Linked:  ✗  (not found in axon.yaml targets)\n")
+		printWarn("Linked", "not found in axon.yaml targets")
 	}
 
 	// Optionally fetch remote before comparing.
@@ -256,7 +256,7 @@ func showSkillStatus(cfg *config.Config, skillName string, fetchFirst bool) erro
 		return fmt.Errorf("cannot read commit history: %w", err)
 	}
 
-	fmt.Println("\n● Recent commits:")
+	printBullet("Recent commits:")
 	if len(entries) == 0 {
 		fmt.Println("  (no commits found for this skill path)")
 	} else {
