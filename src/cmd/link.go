@@ -92,7 +92,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 			case "relinked":
 				printInfo(r.name, "re-linked ("+r.detail+")")
 			case "backed_up":
-				printOK(r.name, r.detail)
+				printBackup(r.name, r.detail)
 			case "error":
 				printErr(r.name, r.detail)
 				return fmt.Errorf("link failed")
@@ -129,7 +129,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 	if len(backedUp) > 0 {
 		printBullet("Linked (original backed up):")
 		for _, r := range backedUp {
-			printOK(r.name, r.detail)
+			printBackup(r.name, r.detail)
 		}
 	}
 	if len(relinked) > 0 {

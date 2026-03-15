@@ -8,7 +8,6 @@ import (
 // ── Unified output helpers ────────────────────────────────────────────────────
 // All commands use these functions to ensure consistent icon usage and
 // indentation throughout axon's CLI output.
-//
 const (
 	iconOK      = "✓" // success / healthy
 	iconError   = "✗" // error / failure
@@ -60,6 +59,34 @@ func printWarn(name, msg string) {
 	} else {
 		fmt.Printf("  %s  [%s] %s\n", iconWarn, name, msg)
 	}
+}
+
+// printBackup prints a backup-created line.
+func printBackup(name, msg string) {
+	if name == "" {
+		fmt.Printf("  %s  %s\n", iconBackup, msg)
+	} else {
+		fmt.Printf("  %s  [%s] %s\n", iconBackup, name, msg)
+	}
+}
+
+// printRestore prints a backup-restore line.
+func printRestore(name, msg string) {
+	if name == "" {
+		fmt.Printf("  %s  %s\n", iconRestore, msg)
+	} else {
+		fmt.Printf("  %s  [%s] %s\n", iconRestore, name, msg)
+	}
+}
+
+// printDir prints a directory list item.
+func printDir(name string) {
+	printListItem(iconDir, name)
+}
+
+// printItem prints a file/item list item.
+func printItem(name string) {
+	printListItem(iconItem, name)
 }
 
 // printSkip prints a skipped / not-applicable line.

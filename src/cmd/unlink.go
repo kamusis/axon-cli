@@ -128,7 +128,7 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 			r := results[0]
 			switch r.state {
 			case "restored":
-				printOK(r.name, "restored: "+r.detail)
+				printRestore(r.name, "restored: "+r.detail)
 			case "removed":
 				printSkip(r.name, "symlink removed, "+r.detail)
 			case "not_exist":
@@ -165,7 +165,7 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 	if len(restored) > 0 {
 		printBullet("Restored from backup:")
 		for _, r := range restored {
-			printOK(r.name, r.detail)
+			printRestore(r.name, r.detail)
 		}
 	}
 	if len(removed) > 0 {

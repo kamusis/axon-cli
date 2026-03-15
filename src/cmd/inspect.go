@@ -10,6 +10,8 @@ import (
 
 	"github.com/kamusis/axon-cli/internal/config"
 	"github.com/spf13/cobra"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"gopkg.in/yaml.v3"
 )
 
@@ -245,7 +247,8 @@ func printInspect(itemPath string) {
 	}
 
 	icon := inspectIconFile // Default: Small Diamond (Custom File)
-	label := strings.Title(category)
+	titler := cases.Title(language.Und)
+	label := titler.String(category)
 
 	if isDir {
 		icon = inspectIconFolder // Default: Large Diamond (Custom Folder)

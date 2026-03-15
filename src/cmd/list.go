@@ -8,6 +8,8 @@ import (
 
 	"github.com/kamusis/axon-cli/internal/config"
 	"github.com/spf13/cobra"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 var listCmd = &cobra.Command{
@@ -92,18 +94,19 @@ func runList(_ *cobra.Command, _ []string) error {
 	}
 
 	printSection("Local Inventory")
+	titler := cases.Title(language.Und)
 
 	for _, cat := range cats {
-		printBullet(strings.Title(cat.Label))
+		printBullet(titler.String(cat.Label))
 		if len(cat.Items) == 0 {
 			printMiss("", "(empty)")
 		} else {
 			for _, item := range cat.Items {
-				icon := "·"
 				if item.IsDir {
-					icon = "+"
+					printDir(item.Name)
+				} else {
+					printItem(item.Name)
 				}
-				printListItem(icon, item.Name)
 			}
 		}
 	}
