@@ -96,7 +96,13 @@ func EnsureDotEnvTemplate() error {
 	body := "" +
 		"AXON_EMBEDDINGS_PROVIDER=\n" +
 		"AXON_EMBEDDINGS_MODEL=\n" +
-		"AXON_EMBEDDINGS_API_KEY=\n"
+		"AXON_EMBEDDINGS_API_KEY=\n" +
+		"\n" +
+		"AXON_AUDIT_PROVIDER=\n" +
+		"AXON_AUDIT_MODEL=\n" +
+		"AXON_AUDIT_API_KEY=\n" +
+		"AXON_AUDIT_BASE_URL=\n" +
+		"AXON_AUDIT_ALLOWED_EXTENSIONS=.md,.sh,.py,.js,.ts,.yaml,.yml\n"
 
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		return fmt.Errorf("cannot write dotenv template %s: %w", p, err)
