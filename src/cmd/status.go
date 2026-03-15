@@ -48,7 +48,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	printSection("Symlink Health")
 
-	var linked, needLink, realDir, broken []string
+	type brokenEntry struct{ name, msg string }
+	var linked, needLink, realDir []string
+	var broken []brokenEntry
 	notInstalledMap := make(map[string]bool)
 	var notInstalled []string
 	var notInstalledCount int
@@ -56,7 +58,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	for _, t := range targets {
 		dest, err := config.ExpandPath(t.Destination)
 		if err != nil {
-			broken = append(broken, fmt.Sprintf("[%s] cannot expand path: %v", t.Name, err))
+			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("cannot expand path: %v", err)})
 			continue
 		}
 
@@ -83,7 +85,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			needLink = append(needLink, t.Name)
 
 		case err != nil:
-			broken = append(broken, fmt.Sprintf("[%s] stat error: %v", t.Name, err))
+			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("stat error: %v", err)})
 
 		case info.Mode()&os.ModeSymlink == 0:
 			realDir = append(realDir, t.Name)
@@ -91,9 +93,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		default:
 			target, err := os.Readlink(dest)
 			if err != nil {
-				broken = append(broken, fmt.Sprintf("[%s] cannot read symlink: %v", t.Name, err))
+				broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("cannot read symlink: %v", err)})
 			} else if target != expected {
-				broken = append(broken, fmt.Sprintf("[%s] wrong target:\n      got:  %s\n      want: %s", t.Name, target, expected))
+				broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", target, expected)})
 			} else {
 				linked = append(linked, t.Name)
 			}
@@ -121,8 +123,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	if len(broken) > 0 {
 		printBullet("Errors:")
-		for _, s := range broken {
-			printErr("", s)
+		for _, e := range broken {
+			printErr(e.name, e.msg)
 		}
 	}
 	if len(notInstalled) > 0 {

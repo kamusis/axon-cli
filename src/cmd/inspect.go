@@ -219,7 +219,7 @@ func uniqueSourceRoots(cfg *config.Config) []string {
 func printInspect(itemPath string) {
 	info, err := os.Stat(itemPath)
 	if err != nil {
-		fmt.Printf("Error accessing path: %v\n", err)
+		printErr("", fmt.Sprintf("Error accessing path: %v", err))
 		return
 	}
 	isDir := info.IsDir()
