@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/kamusis/axon-cli/internal/gitutil"
 )
 
 // CacheRootOverride allows tests to redirect the cache root to a temp directory.
@@ -84,11 +86,17 @@ func IsCloned(cachePath string) bool {
 
 // Clone clones repoURL into cachePath using sparse-checkout init.
 // The repo is cloned with --no-checkout so we can configure sparse-checkout first.
+// When git >= 2.28, --filter=blob:none is used to reduce download size.
 func Clone(repoURL, cachePath string) error {
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		return fmt.Errorf("cannot create cache parent dir: %w", err)
 	}
-	cmd := exec.Command("git", "clone", "--filter=blob:none", "--no-checkout", repoURL, cachePath)
+	args := []string{"clone", "--no-checkout"}
+	if gitutil.SupportsPartialClone() {
+		args = append(args, "--filter=blob:none")
+	}
+	args = append(args, repoURL, cachePath)
+	cmd := exec.Command("git", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

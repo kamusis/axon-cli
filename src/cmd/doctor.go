@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
+	"github.com/kamusis/axon-cli/internal/gitutil"
 	"github.com/spf13/cobra"
 )
 
@@ -166,16 +167,43 @@ func checkGitDoctor() []DiagnosticResult {
 	if err != nil {
 		return []DiagnosticResult{{
 			Category:    cat,
+			Item:        "installed",
 			Passed:      false,
 			Message:     "git not found",
 			Remediation: "install Git: https://git-scm.com/downloads",
 		}}
 	}
-	return []DiagnosticResult{{
+
+	var res []DiagnosticResult
+
+	// Check git is installed and report version.
+	res = append(res, DiagnosticResult{
 		Category: cat,
+		Item:     "installed",
 		Passed:   true,
 		Message:  strings.TrimSpace(string(out)),
-	}}
+	})
+
+	// Partial clone (--filter=blob:none) requires git >= 2.28. When not met,
+	// vendor sync uses full clone; report as passed with a degraded-mode message.
+	if gitutil.SupportsPartialClone() {
+		res = append(res, DiagnosticResult{
+			Category: cat,
+			Item:     "version",
+			Passed:   true,
+			Message:  "meets minimum requirement (>= 2.28)",
+		})
+	} else {
+		res = append(res, DiagnosticResult{
+			Category:    cat,
+			Item:        "version",
+			Passed:      true,
+			Message:     "git < 2.28: partial clone (--filter=blob:none) unavailable, vendor sync will use full clone (upgrade optional)",
+			Remediation: "upgrade to 2.28+ for partial clone: https://git-scm.com/downloads",
+		})
+	}
+
+	return res
 }
 
 func checkHubAndConfig() ([]DiagnosticResult, *config.Config, error) {
