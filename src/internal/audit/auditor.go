@@ -291,6 +291,10 @@ func ComputeVerdict(findings []Finding) string {
 
 // ComputeRiskLevel returns the overall risk level string based on findings.
 func ComputeRiskLevel(findings []Finding) string {
+	if len(findings) == 0 {
+		return "NONE"
+	}
+
 	level := "LOW"
 	for _, f := range findings {
 		switch f.Severity {

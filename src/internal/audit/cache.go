@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/kamusis/axon-cli/internal/config"
@@ -166,6 +167,7 @@ func getCacheDir() (string, error) {
 // generateCacheKey generates a cache key from target and file list.
 func generateCacheKey(target string, files []string) string {
 	// Use MD5 of target + sorted file list
+	sort.Strings(files)
 	h := md5.New()
 	h.Write([]byte(target))
 	for _, f := range files {
@@ -195,4 +197,3 @@ func buildFileInfo(path string) (FileInfo, error) {
 		Hash:  fmt.Sprintf("%x", hash),
 	}, nil
 }
-
