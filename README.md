@@ -56,6 +56,7 @@ axon sync
 | `axon remote set <url>`        | Set or update the Hub's git remote origin URL             |
 | `axon status [skill-name]`     | Validate symlinks + Hub git status; or show skill history |
 | `axon rollback <skill\|--all>` | Revert a skill or the entire Hub to a previous commit     |
+| `axon audit [target]`          | Run AI-powered security audit on Hub content              |
 | `axon doctor`                  | Pre-flight environment check                              |
 | `axon list`                    | List local items grouped by category from axon.yaml       |
 | `axon search <query>`          | Search skills/workflows/commands (keyword + semantic)     |
@@ -218,6 +219,96 @@ Flags:
 | ------------------ | ------------------------------------------------------------------------ |
 | `--all`            | Revert the entire Hub (mutually exclusive with a skill name)             |
 | `--revision <sha>` | Target a specific Git SHA, tag, or branch instead of the previous commit |
+
+### `axon audit` — Security Audit
+
+Scan your Hub content for security issues before sharing skills publicly. Uses AI-powered analysis to detect:
+
+- **Hardcoded secrets** — API keys, passwords, tokens, private keys
+- **Suspicious execution patterns** — shell injection, eval/exec, command substitution
+- **Data exfiltration** — unexpected curl/wget, outbound network calls
+- **PII** — emails, phone numbers, addresses in shared content
+
+```bash
+axon audit                  # scan entire Hub
+axon audit humanizer        # scan a single skill
+axon audit workflow.md      # scan a single file
+axon audit --fix            # interactive redaction mode
+axon audit --force          # force re-scan, ignore cache
+```
+
+**Configuration** (in `~/.axon/.env`):
+
+```bash
+AXON_AUDIT_PROVIDER=openai
+AXON_AUDIT_MODEL=gpt-4o-mini
+AXON_AUDIT_API_KEY=sk-...
+AXON_AUDIT_BASE_URL=                                    # optional: for Ollama or custom endpoints
+AXON_AUDIT_ALLOWED_EXTENSIONS=.md,.sh,.py,.js,.ts,.yaml,.yml  # comma-separated list
+```
+
+**Example output:**
+
+```text
+=== Security Audit: audit-fixture-risky-skill ===
+
+  ⚠  AI-powered analysis may produce false positives or miss issues.
+      All findings should be manually reviewed before taking action.
+
+  Scanning 4 file(s)...
+
+
+  SECURITY AUDIT REPORT
+  ═══════════════════════════════════════════════
+  Target: audit-fixture-risky-skill    Files: 4
+  ───────────────────────────────────────────────
+  RED FLAGS FOUND: 2
+
+  • [EXTREME]  (L13) scripts/publish.sh
+    Use of eval with potentially untrusted input can lead to code injection.
+    "eval "$CMD" >/dev/null || true"
+
+  • [HIGH]     (L12) scripts/report.py
+    Hardcoded API key detected
+    "api_key="sk-test-1234567890abcdef1234567890abcdef""
+
+  ───────────────────────────────────────────────
+  PERMISSIONS REQUIRED (estimated):
+  • File Reads  : ~/.ssh/config
+  • File Writes : output.txt
+  • Network     : https://example.com/upload
+  • Commands    : curl, eval, subprocess.run
+  ───────────────────────────────────────────────
+  RISK LEVEL: EXTREME
+  VERDICT   : ⛔ DO NOT RUN
+  ═══════════════════════════════════════════════
+
+  2 potential issue(s) found. Review manually or run 'axon audit --fix'.
+```
+
+**Interactive fix mode** (`--fix`):
+
+For each finding, choose an action:
+- `r` — Redact (replace with `[REDACTED]`)
+- `d` — Delete the entire line
+- `s` — Skip this finding
+- `q` — Quit (stop processing)
+
+**Caching:**
+
+Audit results are cached in `~/.axon/audit-results/` to avoid duplicate LLM API calls. When using `--fix`, cached results are used if files haven't changed. Use `--force` to bypass cache and re-scan.
+
+**Supported LLM providers:**
+
+- OpenAI (including compatible APIs)
+- Custom endpoints via `AXON_AUDIT_BASE_URL` (e.g., Ollama)
+
+Flags:
+
+| Flag      | Description                                |
+| --------- | ------------------------------------------ |
+| `--fix`   | Interactive redaction mode                 |
+| `--force` | Force re-scan, ignore cache                |
 
 ### `axon inspect` — Skill Metadata
 
