@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kamusis/axon-cli/internal/audit"
@@ -19,8 +20,10 @@ var auditCmd = &cobra.Command{
 
 Detects:
 - Hardcoded secrets (API keys, passwords, tokens)
-- Suspicious execution patterns (shell injection, eval/exec)
-- Data exfiltration (unexpected network calls)
+- Suspicious execution patterns (shell injection, eval/exec, base64 obfuscation)
+- Data exfiltration (unexpected network calls, IP-based connections)
+- Unauthorized file access (credentials, Agent memory files)
+- Privilege escalation (sudo, su)
 - PII (emails, phone numbers, addresses)
 
 Examples:
@@ -95,17 +98,19 @@ func runAudit(_ *cobra.Command, args []string) error {
 	fmt.Printf("  Scanning %d file(s)...\n", len(files))
 	fmt.Println()
 
-	// Check cache if --fix and not --force
+	// Check cache if not --force
 	var findings []audit.Finding
+	var permissions audit.PermissionScope
 	var usedCache bool
 
-	if flagFix && !flagForce {
+	if !flagForce {
 		// Try to load cached results
 		cache, err := audit.LoadAuditResults(target, files)
 		if err == nil && cache != nil {
 			// Validate cache
 			if audit.ValidateCache(cache, files) {
 				findings = cache.Findings
+				permissions = cache.Permissions
 				usedCache = true
 
 				// Print cache info
@@ -132,14 +137,15 @@ func runAudit(_ *cobra.Command, args []string) error {
 				continue
 			}
 
-			// Audit file
-			fileFindings, err := audit.AuditFile(ctx, provider, file, string(content))
+			// Audit file — returns FileAuditResult with findings + permissions
+			result, err := audit.AuditFile(ctx, provider, file, string(content))
 			if err != nil {
 				printWarn(file, fmt.Sprintf("Audit failed: %v", err))
 				continue
 			}
 
-			findings = append(findings, fileFindings...)
+			findings = append(findings, result.Findings...)
+			audit.MergePermissions(&permissions, result.Permissions)
 
 			// Progress indicator
 			if (i+1)%10 == 0 || i+1 == len(files) {
@@ -150,52 +156,16 @@ func runAudit(_ *cobra.Command, args []string) error {
 		fmt.Println()
 
 		// Save results to cache
-		if err := audit.SaveAuditResults(target, files, findings); err != nil {
+		if err := audit.SaveAuditResults(target, files, findings, permissions); err != nil {
 			printWarn("", fmt.Sprintf("Failed to save cache: %v", err))
 		}
 	}
 
-	// Print findings
-	printBullet("Findings")
-	fmt.Println()
-
-	if len(findings) == 0 {
-		printOK("", "No issues found.")
-		return nil
-	}
-
-	// Group findings by severity
-	highSev := []audit.Finding{}
-	mediumSev := []audit.Finding{}
-	lowSev := []audit.Finding{}
-
-	for _, f := range findings {
-		switch f.Severity {
-		case "high":
-			highSev = append(highSev, f)
-		case "medium":
-			mediumSev = append(mediumSev, f)
-		case "low":
-			lowSev = append(lowSev, f)
-		default:
-			lowSev = append(lowSev, f)
-		}
-	}
-
-	// Print findings by severity
-	printFindings(highSev)
-	printFindings(mediumSev)
-	printFindings(lowSev)
-
-	fmt.Println()
-	fmt.Printf("  %d potential issue(s) found. Review manually", len(findings))
-	if !flagFix {
-		fmt.Printf(" or run 'axon audit --fix'.")
-	}
-	fmt.Println()
+	// Print structured audit report
+	printAuditReport(target, files, findings, permissions)
 
 	// Enter fix mode if requested
-	if flagFix {
+	if flagFix && len(findings) > 0 {
 		fmt.Println()
 		return runFixMode(findings)
 	}
@@ -203,17 +173,88 @@ func runAudit(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-// printFindings prints a list of findings.
-func printFindings(findings []audit.Finding) {
-	for _, f := range findings {
-		location := fmt.Sprintf("%s:%d", f.FilePath, f.LineNumber)
-		msg := fmt.Sprintf("%s (%s)", f.Description, f.Severity)
-		printWarn(location, msg)
-		if f.Snippet != "" {
-			fmt.Printf("      \"%s\"\n", f.Snippet)
-		}
-		fmt.Println()
+// printAuditReport renders the structured SECURITY AUDIT REPORT to stdout.
+func printAuditReport(target string, files []string, findings []audit.Finding, permissions audit.PermissionScope) {
+	border := strings.Repeat("═", 47)
+	divider := strings.Repeat("─", 47)
+
+	fmt.Println()
+	fmt.Println("  SECURITY AUDIT REPORT")
+	fmt.Println("  " + border)
+
+	targetLabel := target
+	if targetLabel == "" {
+		targetLabel = "(entire Hub)"
 	}
+	fmt.Printf("  Target: %-28s Files: %d\n", targetLabel, len(files))
+	fmt.Println("  " + divider)
+
+	// Findings section
+	if len(findings) == 0 {
+		printOK("", "No issues found.")
+		fmt.Println("  " + divider)
+	} else {
+		fmt.Printf("  RED FLAGS FOUND: %d\n", len(findings))
+		fmt.Println()
+
+		// Group by severity order: extreme → high → medium → low
+		for _, sev := range []string{"extreme", "high", "medium", "low"} {
+			for _, f := range findings {
+				if f.Severity != sev {
+					continue
+				}
+				label := fmt.Sprintf("[%s]", strings.ToUpper(f.Severity))
+				location := fmt.Sprintf("(L%d) %s", f.LineNumber, f.FilePath)
+				fmt.Printf("  • %-10s %s\n", label, location)
+				fmt.Printf("    %s\n", f.Description)
+				if f.Snippet != "" {
+					fmt.Printf("    \"%s\"\n", f.Snippet)
+				}
+				fmt.Println()
+			}
+		}
+		fmt.Println("  " + divider)
+	}
+
+	// Permissions section
+	fmt.Println("  PERMISSIONS REQUIRED (estimated):")
+	fmt.Printf("  • File Reads  : %s\n", formatList(permissions.FileReads))
+	fmt.Printf("  • File Writes : %s\n", formatList(permissions.FileWrites))
+	fmt.Printf("  • Network     : %s\n", formatList(permissions.Network))
+	fmt.Printf("  • Commands    : %s\n", formatList(permissions.Commands))
+	fmt.Println("  " + divider)
+
+	// Risk level and verdict
+	riskLevel := audit.ComputeRiskLevel(findings)
+	verdict := audit.ComputeVerdict(findings)
+	fmt.Printf("  RISK LEVEL: %s\n", riskLevel)
+	fmt.Printf("  VERDICT   : %s\n", verdict)
+	fmt.Println("  " + border)
+
+	if len(findings) > 0 && !flagFix {
+		fmt.Println()
+		fmt.Printf("  %d potential issue(s) found. Review manually or run 'axon audit --fix'.\n", len(findings))
+	}
+}
+
+// formatList formats a string slice for display, returning "None" when empty or when items are just variations of "none".
+func formatList(items []string) string {
+	if len(items) == 0 {
+		return "None"
+	}
+	
+	validItems := make([]string, 0, len(items))
+	for _, item := range items {
+		clean := strings.TrimSpace(strings.ToLower(item))
+		if clean != "" && clean != "none" && clean != "n/a" && clean != "null" {
+			validItems = append(validItems, strings.TrimSpace(item))
+		}
+	}
+	
+	if len(validItems) == 0 {
+		return "None"
+	}
+	return strings.Join(validItems, ", ")
 }
 
 // formatDuration formats a duration in human-readable form.
@@ -251,4 +292,3 @@ func runFixMode(findings []audit.Finding) error {
 
 	return nil
 }
-

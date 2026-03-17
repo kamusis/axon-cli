@@ -21,16 +21,17 @@ type FileInfo struct {
 
 // AuditCache represents cached audit results.
 type AuditCache struct {
-	Target      string     `json:"target"`
-	Timestamp   time.Time  `json:"timestamp"`
-	LLMProvider string     `json:"llm_provider"`
-	LLMModel    string     `json:"llm_model"`
-	Files       []FileInfo `json:"files"`
-	Findings    []Finding  `json:"findings"`
+	Target      string          `json:"target"`
+	Timestamp   time.Time       `json:"timestamp"`
+	LLMProvider string          `json:"llm_provider"`
+	LLMModel    string          `json:"llm_model"`
+	Files       []FileInfo      `json:"files"`
+	Findings    []Finding       `json:"findings"`
+	Permissions PermissionScope `json:"permissions"` // aggregated across all scanned files
 }
 
-// SaveAuditResults saves audit results to cache.
-func SaveAuditResults(target string, files []string, findings []Finding) error {
+// SaveAuditResults saves audit results (findings and merged permission scope) to cache.
+func SaveAuditResults(target string, files []string, findings []Finding, permissions PermissionScope) error {
 	// Get cache directory
 	cacheDir, err := getCacheDir()
 	if err != nil {
@@ -65,6 +66,7 @@ func SaveAuditResults(target string, files []string, findings []Finding) error {
 		LLMModel:    model,
 		Files:       fileInfos,
 		Findings:    findings,
+		Permissions: permissions,
 	}
 
 	// Generate cache key
