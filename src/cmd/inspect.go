@@ -64,20 +64,26 @@ type skillMeta struct {
 	// We unmarshal as []yaml.Node for maximum flexibility.
 	Triggers yaml.Node `yaml:"triggers"`
 
-	// Requires: {bins: [...], envs: [...]} dependency block.
+	// Requires: {bins: [...], envs: [...], npm: [...], python: [...]} dependency block.
 	Requires struct {
-		Bins []string `yaml:"bins"`
-		Envs []string `yaml:"envs"`
+		Bins   []string `yaml:"bins"`
+		Envs   []string `yaml:"envs"`
+		NPM    []string `yaml:"npm"`
+		Python []string `yaml:"python"`
 	} `yaml:"requires"`
 
 	// OpenClaw Metadata standard nested fields
 	Metadata struct {
 		Requires struct {
-			Bins []string `yaml:"bins"`
+			Bins   []string `yaml:"bins"`
+			NPM    []string `yaml:"npm"`
+			Python []string `yaml:"python"`
 		} `yaml:"requires"`
 		OpenClaw struct {
 			Requires struct {
-				Bins []string `yaml:"bins"`
+				Bins   []string `yaml:"bins"`
+				NPM    []string `yaml:"npm"`
+				Python []string `yaml:"python"`
 			} `yaml:"requires"`
 		} `yaml:"openclaw"`
 	} `yaml:"metadata"`
@@ -97,6 +103,56 @@ func (m *skillMeta) GetRequiresBins() []string {
 		if !seen[b] && b != "" {
 			seen[b] = true
 			unique = append(unique, b)
+		}
+	}
+	return unique
+}
+
+// GetRequiresNPM merges npm packages from legacy format and deep metadata openclaw format
+func (m *skillMeta) GetRequiresNPM() []string {
+	var pkgs []string
+	pkgs = append(pkgs, m.Requires.NPM...)
+	pkgs = append(pkgs, m.Metadata.Requires.NPM...)
+	pkgs = append(pkgs, m.Metadata.OpenClaw.Requires.NPM...)
+
+	seen := make(map[string]bool)
+	var unique []string
+	for _, p := range pkgs {
+		if !seen[p] && p != "" {
+			seen[p] = true
+			unique = append(unique, p)
+		}
+	}
+	return unique
+}
+
+// GetRequiresEnvs returns environment variable names declared under requires.envs.
+// Envs only exist at the top-level requires block (no metadata nesting).
+func (m *skillMeta) GetRequiresEnvs() []string {
+	seen := make(map[string]bool)
+	var unique []string
+	for _, e := range m.Requires.Envs {
+		if !seen[e] && e != "" {
+			seen[e] = true
+			unique = append(unique, e)
+		}
+	}
+	return unique
+}
+
+// GetRequiresPython merges python packages from legacy format and deep metadata openclaw format
+func (m *skillMeta) GetRequiresPython() []string {
+	var pkgs []string
+	pkgs = append(pkgs, m.Requires.Python...)
+	pkgs = append(pkgs, m.Metadata.Requires.Python...)
+	pkgs = append(pkgs, m.Metadata.OpenClaw.Requires.Python...)
+
+	seen := make(map[string]bool)
+	var unique []string
+	for _, p := range pkgs {
+		if !seen[p] && p != "" {
+			seen[p] = true
+			unique = append(unique, p)
 		}
 	}
 	return unique

@@ -169,9 +169,18 @@ func gatherDiagnostics() []DiagnosticResult {
 
 		// 8. Binary Dependencies
 		results = append(results, checkBinaryDeps(cfg)...)
+
+		// 9. NPM Dependencies
+		results = append(results, checkNPMDeps(cfg)...)
+
+		// 10. Python Dependencies
+		results = append(results, checkPythonDeps(cfg)...)
+
+		// 11. Environment Variables
+		results = append(results, checkEnvDeps(cfg)...)
 	}
 
-	// 9. Windows symlink permission
+	// 12. Windows symlink permission
 	if runtime.GOOS == "windows" {
 		results = append(results, checkWindowsSymlink()...)
 	}
@@ -486,9 +495,7 @@ func checkBinaryDeps(cfg *config.Config) []DiagnosticResult {
 
 			for _, bin := range meta.GetRequiresBins() {
 				foundAny = true
-
-				// Deduplicate by bin + skillName
-				key := bin + "|" + skillName
+				key := "bin|" + bin + "|" + skillName
 				if seenBins[key] {
 					continue
 				}
@@ -517,6 +524,215 @@ func checkBinaryDeps(cfg *config.Config) []DiagnosticResult {
 
 	if !foundAny {
 		res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "no binary dependencies declared"})
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].Item < res[j].Item
+	})
+
+	return res
+}
+
+func checkNPMDeps(cfg *config.Config) []DiagnosticResult {
+	cat := "NPM Dependencies"
+	var res []DiagnosticResult
+
+	foundAny := false
+	seenNPM := make(map[string]bool)
+
+	_ = filepath.WalkDir(cfg.RepoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && d.Name() == "SKILL.md" {
+			meta, hasMeta := parseSkillMeta(path)
+			if !hasMeta {
+				return nil
+			}
+
+			skillName := filepath.Base(filepath.Dir(path))
+			if meta.Name != "" {
+				skillName = meta.Name
+			}
+
+			skillDir := filepath.Dir(path)
+			for _, pkg := range meta.GetRequiresNPM() {
+				foundAny = true
+				key := pkg + "|" + skillName
+				if seenNPM[key] {
+					continue
+				}
+				seenNPM[key] = true
+
+				// Check if package is installed in the skill's node_modules
+				pkgPath := filepath.Join(skillDir, "node_modules", pkg)
+				_, err := os.Stat(pkgPath)
+
+				if os.IsNotExist(err) {
+					res = append(res, DiagnosticResult{
+						Category:    cat,
+						Item:        fmt.Sprintf("%s (%s)", pkg, skillName),
+						Passed:      false,
+						Severity:    DiagnosticSeverityWarn,
+						Message:     fmt.Sprintf("NPM package '%s' not found in skill's node_modules", pkg),
+						Remediation: fmt.Sprintf("run 'pnpm install %s' in %s", pkg, skillDir),
+					})
+				} else {
+					res = append(res, DiagnosticResult{
+						Category: cat,
+						Item:     fmt.Sprintf("%s (%s)", pkg, skillName),
+						Passed:   true,
+						Message:  "found in skill's node_modules",
+					})
+				}
+			}
+		}
+		return nil
+	})
+
+	if !foundAny {
+		res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "no NPM dependencies declared"})
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].Item < res[j].Item
+	})
+
+	return res
+}
+
+func checkEnvDeps(cfg *config.Config) []DiagnosticResult {
+	cat := "Environment Variables"
+	var res []DiagnosticResult
+
+	foundAny := false
+	seenEnvs := make(map[string]bool)
+
+	_ = filepath.WalkDir(cfg.RepoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && d.Name() == "SKILL.md" {
+			meta, hasMeta := parseSkillMeta(path)
+			if !hasMeta {
+				return nil
+			}
+
+			skillName := filepath.Base(filepath.Dir(path))
+			if meta.Name != "" {
+				skillName = meta.Name
+			}
+
+			for _, env := range meta.GetRequiresEnvs() {
+				foundAny = true
+				key := env + "|" + skillName
+				if seenEnvs[key] {
+					continue
+				}
+				seenEnvs[key] = true
+
+				if _, ok := os.LookupEnv(env); !ok {
+					res = append(res, DiagnosticResult{
+						Category:    cat,
+						Item:        fmt.Sprintf("%s (%s)", env, skillName),
+						Passed:      false,
+						Severity:    DiagnosticSeverityWarn,
+						Message:     fmt.Sprintf("environment variable '%s' is not set", env),
+						Remediation: fmt.Sprintf("set %s in your shell profile or .env file", env),
+					})
+				} else {
+					res = append(res, DiagnosticResult{
+						Category: cat,
+						Item:     fmt.Sprintf("%s (%s)", env, skillName),
+						Passed:   true,
+						Message:  "set in environment",
+					})
+				}
+			}
+		}
+		return nil
+	})
+
+	if !foundAny {
+		res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "no environment variable dependencies declared"})
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].Item < res[j].Item
+	})
+
+	return res
+}
+
+func checkPythonDeps(cfg *config.Config) []DiagnosticResult {
+	cat := "Python Dependencies"
+	var res []DiagnosticResult
+
+	foundAny := false
+	seenPkg := make(map[string]bool)
+
+	_ = filepath.WalkDir(cfg.RepoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && d.Name() == "SKILL.md" {
+			meta, hasMeta := parseSkillMeta(path)
+			if !hasMeta {
+				return nil
+			}
+
+			skillName := filepath.Base(filepath.Dir(path))
+			if meta.Name != "" {
+				skillName = meta.Name
+			}
+
+			skillDir := filepath.Dir(path)
+			for _, pkg := range meta.GetRequiresPython() {
+				foundAny = true
+				key := pkg + "|" + skillName
+				if seenPkg[key] {
+					continue
+				}
+				seenPkg[key] = true
+
+				// Check if package is installed in the skill's local .venv
+				pattern := filepath.Join(skillDir, ".venv", "lib", "python*", "site-packages", pkg)
+				matches, globErr := filepath.Glob(pattern)
+				found := globErr == nil && len(matches) > 0
+
+				if !found {
+					res = append(res, DiagnosticResult{
+						Category:    cat,
+						Item:        fmt.Sprintf("%s (%s)", pkg, skillName),
+						Passed:      false,
+						Severity:    DiagnosticSeverityWarn,
+						Message:     fmt.Sprintf("Python package '%s' not found in skill's .venv", pkg),
+						Remediation: fmt.Sprintf("run 'uv pip install %s' in %s", pkg, skillDir),
+					})
+				} else {
+					res = append(res, DiagnosticResult{
+						Category: cat,
+						Item:     fmt.Sprintf("%s (%s)", pkg, skillName),
+						Passed:   true,
+						Message:  "found in skill's .venv",
+					})
+				}
+			}
+		}
+		return nil
+	})
+
+	if !foundAny {
+		res = append(res, DiagnosticResult{Category: cat, Passed: true, Message: "no Python dependencies declared"})
 	}
 
 	sort.Slice(res, func(i, j int) bool {
