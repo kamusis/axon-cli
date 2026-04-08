@@ -33,6 +33,23 @@ Axon keeps your AI-editor/CLI/agent skills, workflows, and commands in sync acro
 > | Fedora/RHEL   | `sudo dnf install git`                                                                   |
 > | Windows       | [git-scm.com/download/win](https://git-scm.com/download/win) or `winget install Git.Git` |
 
+### By AI agent
+
+Paste the following prompt into your AI editor (Windsurf, Claude Code, Cursor, etc.).
+The agent will read the setup guide and walk you through the full installation:
+
+```
+Please read the axon-cli setup guide from the link below and follow the steps
+to install and configure axon on this machine:
+
+https://raw.githubusercontent.com/kamusis/axon-hub/master/skills/axon-cli/references/setup.md
+
+My skills git remote URL is: none
+(Replace "none" with your git URL if you have one, e.g. git@github.com:you/axon-hub.git)
+```
+
+### By Human
+
 ```bash
 # 1. Download axon for your platform (see Releases)
 # 2. Bootstrap a local Hub
