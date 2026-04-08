@@ -109,6 +109,15 @@ func syncReadWrite(cfg *config.Config) error {
 		} else {
 			return fmt.Errorf("git commit failed: %w\n%s", commitErr, commitOut)
 		}
+	} else {
+		// Show which files were included in this commit.
+		if diffOut, err := gitOutput(repo, "diff", "HEAD~1", "--name-only"); err == nil {
+			for _, f := range strings.Split(strings.TrimSpace(diffOut), "\n") {
+				if f != "" {
+					printInfo("", "  "+f)
+				}
+			}
+		}
 	}
 
 	if !hasRemote {
