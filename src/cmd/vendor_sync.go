@@ -51,6 +51,8 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 	printSection("Vendor Sync")
 
 	var mirrored, skipped, failed int
+	var syncedNames, skippedNames []string
+
 	for _, v := range cfg.Vendors {
 		ok, err := syncVendorEntry(cfg.RepoPath, v)
 		if err != nil {
@@ -61,8 +63,10 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 		}
 		if ok {
 			mirrored++
+			syncedNames = append(syncedNames, v.Name)
 		} else {
 			skipped++
+			skippedNames = append(skippedNames, v.Name)
 		}
 	}
 
@@ -71,6 +75,21 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 	}
 
 	printOK("", fmt.Sprintf("%d mirrored, %d skipped, %d error", mirrored, skipped, failed))
+
+	// Print grouped summary for quick overview
+	if len(syncedNames) > 0 {
+		printBullet("Synced:")
+		for _, name := range syncedNames {
+			printOK(name, "")
+		}
+	}
+	if len(skippedNames) > 0 {
+		printBullet("Skipped (already up to date):")
+		for _, name := range skippedNames {
+			printSkip(name, "")
+		}
+	}
+
 	return nil
 }
 
