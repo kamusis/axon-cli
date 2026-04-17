@@ -50,16 +50,22 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 
 	printSection("Vendor Sync")
 
+	type failedEntry struct {
+		name string
+		msg  string
+	}
+
 	var mirrored, skipped, failed int
 	var syncedNames, skippedNames []string
+	var failedEntries []failedEntry
 
 	for _, v := range cfg.Vendors {
 		ok, err := syncVendorEntry(cfg.RepoPath, v)
 		if err != nil {
-			printErr(v.Name, err.Error())
+			printErr(v.Name, "failed")
 			failed++
-			// Stop on first hard failure (MVP behaviour per plan).
-			break
+			failedEntries = append(failedEntries, failedEntry{name: v.Name, msg: err.Error()})
+			continue
 		}
 		if ok {
 			mirrored++
@@ -70,13 +76,12 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Print grouped summary — always shown regardless of errors.
 	if failed > 0 {
-		return fmt.Errorf("vendor sync failed (%d mirrored, %d skipped, %d error)", mirrored, skipped, failed)
+		printErr("", fmt.Sprintf("%d error(s), %d mirrored, %d skipped", failed, mirrored, skipped))
+	} else {
+		printOK("", fmt.Sprintf("%d mirrored, %d skipped", mirrored, skipped))
 	}
-
-	printOK("", fmt.Sprintf("%d mirrored, %d skipped, %d error", mirrored, skipped, failed))
-
-	// Print grouped summary for quick overview
 	if len(syncedNames) > 0 {
 		printBullet("Synced:")
 		for _, name := range syncedNames {
@@ -89,7 +94,16 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 			printSkip(name, "")
 		}
 	}
+	if len(failedEntries) > 0 {
+		printBullet("Errors:")
+		for _, e := range failedEntries {
+			printErr(e.name, e.msg)
+		}
+	}
 
+	if failed > 0 {
+		return fmt.Errorf("vendor sync failed (%d mirrored, %d skipped, %d error)", mirrored, skipped, failed)
+	}
 	return nil
 }
 

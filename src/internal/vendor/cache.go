@@ -165,6 +165,9 @@ func SourcePath(cachePath, subdir string) (string, error) {
 	src := filepath.Join(cachePath, filepath.FromSlash(subdir))
 	info, err := os.Stat(src)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("subdir %q no longer exists in the upstream repo — it may have been deleted; remove or update this vendor entry in axon.yaml", subdir)
+		}
 		return "", fmt.Errorf("subdir %q not found in cache after checkout: %w", subdir, err)
 	}
 	if !info.IsDir() {
