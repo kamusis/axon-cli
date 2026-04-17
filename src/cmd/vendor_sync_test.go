@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kamusis/axon-cli/internal/config"
@@ -211,6 +212,59 @@ func TestSyncVendorEntry_SameRepoTwoSubdirs(t *testing.T) {
 		if string(data) != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.path, string(data), tc.want)
 		}
+	}
+}
+
+// TestSyncVendorEntry_SubdirDeletedUpstream verifies that when the vendor subdir
+// no longer exists in the upstream repo, syncVendorEntry returns an actionable error
+// that guides the user to update axon.yaml — and does NOT modify the local destination.
+func TestSyncVendorEntry_SubdirDeletedUpstream(t *testing.T) {
+	resetVendorCache(t)
+
+	// Build a repo that contains "skills/present" but NOT "skills/deleted".
+	srcRepo := makeLocalVendorRepo(t, "skills/present", "SKILL.md", "# Present\n")
+
+	hubRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(hubRoot, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate a local copy to verify it is untouched after the failed sync.
+	localDest := filepath.Join(hubRoot, "skills", "deleted")
+	if err := os.Mkdir(localDest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDest, "SKILL.md"), []byte("# Deleted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := vendor.RsyncAvailable
+	vendor.RsyncAvailable = func() bool { return false }
+	defer func() { vendor.RsyncAvailable = orig }()
+
+	v := config.Vendor{
+		Name:   "deleted-skill",
+		Repo:   srcRepo,
+		Subdir: "skills/deleted",
+		Dest:   "skills/deleted",
+		Ref:    "master",
+	}
+
+	_, err := syncVendorEntry(hubRoot, v)
+	if err == nil {
+		t.Fatal("expected error when subdir is missing upstream")
+	}
+	if !strings.Contains(err.Error(), "axon.yaml") {
+		t.Errorf("error should mention axon.yaml to guide the user, got: %v", err)
+	}
+
+	// Local destination must be completely untouched.
+	data, readErr := os.ReadFile(filepath.Join(localDest, "SKILL.md"))
+	if readErr != nil {
+		t.Fatalf("local destination was unexpectedly removed: %v", readErr)
+	}
+	if string(data) != "# Deleted\n" {
+		t.Errorf("local destination content was modified, got: %q", string(data))
 	}
 }
 
