@@ -53,3 +53,15 @@ changelog:
       - "^chore:"
       - Merge pull request
       - Merge branch
+
+brews:
+  - name: axon-cli
+    repository:
+      owner: kamusis
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/kamusis/axon-cli"
+    description: "Axon CLI tools"
+    test: |
+      system "#{bin}/axon", "--version"

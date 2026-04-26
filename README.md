@@ -533,10 +533,10 @@ If `git` is not found, affected commands will exit immediately with a clear erro
 
 ## Installation
 
-### Homebrew (macOS/Linux) — coming soon
+### Homebrew (macOS/Linux)
 
 ```bash
-brew install kamusis/tap/axon
+brew install kamusis/tap/axon-cli
 ```
 
 ### Download Binary
