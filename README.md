@@ -50,15 +50,36 @@ My skills git remote URL is: none
 
 ### By Human
 
+#### Installation
+
+##### Homebrew (macOS/Linux)
+
 ```bash
-# 1. Download axon for your platform (see Releases)
-# 2. Bootstrap a local Hub
+brew install kamusis/tap/axon-cli
+```
+
+##### or Download Binary (macOS/Linux/Windows)
+
+Download the latest release from [GitHub Releases](https://github.com/kamusis/axon-cli/releases) and place `axon` in your `$PATH`.
+
+##### or Build from Source (macOS/Linux/Windows)
+
+```bash
+git clone https://github.com/kamusis/axon-cli.git
+cd axon-cli/src && go build -o axon .
+cp axon ~/.local/bin/
+```
+
+#### Usage
+
+```bash
+# 1. Bootstrap a local Hub
 axon init
 
-# 3. Link all your AI tools to the Hub
+# 2. Link all your AI tools to the Hub
 axon link
 
-# 4. Sync to a remote repo (optional — add a remote first)
+# 3. Sync to a remote repo (optional — add a remote first)
 axon sync
 ```
 
@@ -306,6 +327,7 @@ AXON_AUDIT_ALLOWED_EXTENSIONS=.md,.sh,.py,.js,.ts,.yaml,.yml  # comma-separated 
 **Interactive fix mode** (`--fix`):
 
 For each finding, choose an action:
+
 - `r` — Redact (replace with `[REDACTED]`)
 - `d` — Delete the entire line
 - `s` — Skip this finding
@@ -322,10 +344,10 @@ Audit results are cached in `~/.axon/audit-results/` to avoid duplicate LLM API 
 
 Flags:
 
-| Flag      | Description                                |
-| --------- | ------------------------------------------ |
-| `--fix`   | Interactive redaction mode                 |
-| `--force` | Force re-scan, ignore cache                |
+| Flag      | Description                 |
+| --------- | --------------------------- |
+| `--fix`   | Interactive redaction mode  |
+| `--force` | Force re-scan, ignore cache |
 
 ### `axon inspect` — Skill Metadata
 
@@ -530,27 +552,6 @@ vendors:
 | **rsync**  | 💡 Soft  | Highly recommended for `axon vendor sync`. If missing, Axon falls back to `rm` + `cp`.                                                   |
 
 If `git` is not found, affected commands will exit immediately with a clear error message.
-
-## Installation
-
-### Homebrew (macOS/Linux)
-
-```bash
-brew install kamusis/tap/axon-cli
-```
-
-### Download Binary
-
-Download the latest release from [GitHub Releases](https://github.com/kamusis/axon-cli/releases) and place `axon` in your `$PATH`.
-
-### Build from Source
-
-```bash
-git clone https://github.com/kamusis/axon-cli.git
-cd axon-cli/src
-go build -o axon .
-sudo mv axon /usr/local/bin/
-```
 
 ## Windows Notes
 
