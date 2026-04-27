@@ -18,10 +18,14 @@ func TestAuditCommand_EndToEnd(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()
 
-	// Set HOME to temp dir
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	// Redirect the home directory so config.Save writes to tmpDir, not the real
+	// ~/.axon/axon.yaml.  os.UserHomeDir() reads USERPROFILE on Windows and HOME
+	// on Unix, so we must override both to achieve cross-platform isolation.
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		orig := os.Getenv(key)
+		os.Setenv(key, tmpDir)
+		defer os.Setenv(key, orig)
+	}
 
 	// Create axon directory structure
 	axonDir := filepath.Join(tmpDir, ".axon")
@@ -42,9 +46,11 @@ API_KEY=sk-1234567890abcdef
 	}
 
 	// Initialize git repo
+	origDir, _ := os.Getwd()
 	if err := os.Chdir(repoDir); err != nil {
 		t.Fatalf("failed to chdir: %v", err)
 	}
+	defer os.Chdir(origDir)
 	if err := runCommand("git", "init"); err != nil {
 		t.Fatalf("failed to init git: %v", err)
 	}

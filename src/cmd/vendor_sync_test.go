@@ -69,6 +69,7 @@ func makeLocalVendorRepo(t *testing.T, subdir, filename, content string) string 
 		{"-C", repoDir, "init"},
 		{"-C", repoDir, "config", "user.email", "test@axon.local"},
 		{"-C", repoDir, "config", "user.name", "Axon Test"},
+		{"-C", repoDir, "config", "core.autocrlf", "false"},
 	} {
 		if err := gitRun(args...); err != nil {
 			t.Fatalf("git %v: %v", args, err)

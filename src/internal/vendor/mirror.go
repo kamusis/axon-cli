@@ -2,8 +2,10 @@ package vendor
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -14,12 +16,15 @@ import (
 //
 // Returns the cleaned relative path on success.
 func ValidateDest(dest string) (string, error) {
-	if filepath.IsAbs(dest) {
+	// Normalise to forward slashes before any checks — dest is a Hub-relative
+	// path used as a git subpath, so it must stay POSIX-style.
+	dest = strings.ReplaceAll(dest, "\\", "/")
+	if strings.HasPrefix(dest, "/") {
 		return "", fmt.Errorf("vendor dest must be a relative path, got: %q", dest)
 	}
-	clean := filepath.Clean(dest)
+	clean := path.Clean(dest)
 	// After cleaning, a path that escapes the root starts with "..".
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+	if clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", fmt.Errorf("vendor dest %q escapes the Hub root", dest)
 	}
 	return clean, nil
@@ -86,12 +91,56 @@ func mirrorFallback(src, dest string) error {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return fmt.Errorf("cannot recreate destination directory %q: %w", dest, err)
 	}
-	// Copy source contents into destination.
-	cmd := exec.Command("cp", "-a", src+string(os.PathSeparator)+".", dest)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cp fallback failed: %w", err)
+	// Copy source tree into destination using pure Go (cross-platform).
+	return copyDirContents(src, dest)
+}
+
+// copyDirContents recursively copies all files and subdirectories from src into
+// dest.  Both src and dest must already exist.  File permissions are preserved.
+func copyDirContents(src, dest string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+
+		if d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			return os.MkdirAll(target, info.Mode())
+		}
+
+		// Regular file — copy with original permissions.
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return copyFile(path, target, info.Mode())
+	})
+}
+
+// copyFile copies a single file from src to dest, setting the given permission bits.
+func copyFile(src, dest string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %q: %w", src, err)
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return fmt.Errorf("create %q: %w", dest, err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy %q → %q: %w", src, dest, err)
 	}
 	return nil
 }

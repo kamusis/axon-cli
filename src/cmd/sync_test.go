@@ -149,7 +149,9 @@ func TestGitIdentityConfigured_LocalIdentity(t *testing.T) {
 }
 
 func TestGitIdentityConfigured_MixedLocalAndGlobalIdentity(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {

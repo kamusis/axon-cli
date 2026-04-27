@@ -48,9 +48,29 @@ func CachePath(repoURL string) (string, error) {
 }
 
 // parseOwnerRepo extracts the owner and repository name from a Git remote URL.
-// Supports HTTPS (https://host/owner/repo[.git]) and SCP-style SSH
-// (git@host:owner/repo[.git]) formats.
+// Supports HTTPS (https://host/owner/repo[.git]), SCP-style SSH
+// (git@host:owner/repo[.git]), and local filesystem paths (for testing).
 func parseOwnerRepo(rawURL string) (owner, repo string, err error) {
+	// Local filesystem path (no scheme, no @): derive owner/repo from the last
+	// two path segments.  This supports test repos created with t.TempDir().
+	if !strings.Contains(rawURL, "://") && !strings.Contains(rawURL, "@") {
+		// Normalise Windows backslashes to forward slashes.
+		clean := strings.ReplaceAll(rawURL, "\\", "/")
+		clean = strings.TrimRight(clean, "/")
+		parts := strings.Split(clean, "/")
+		// Filter out empty segments (e.g. from leading slash on Unix).
+		var segs []string
+		for _, p := range parts {
+			if p != "" {
+				segs = append(segs, p)
+			}
+		}
+		if len(segs) < 2 {
+			return "", "", fmt.Errorf("expected at least owner/repo in URL path, got %q", rawURL)
+		}
+		return segs[len(segs)-2], strings.TrimSuffix(segs[len(segs)-1], ".git"), nil
+	}
+
 	// Normalise SCP-style SSH URLs (git@github.com:owner/repo.git) to https form
 	// so net/url can parse them.
 	normalized := rawURL
@@ -91,7 +111,9 @@ func Clone(repoURL, cachePath string) error {
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		return fmt.Errorf("cannot create cache parent dir: %w", err)
 	}
-	args := []string{"clone", "--no-checkout"}
+	// Disable CRLF conversion so vendor files are mirrored byte-for-byte
+	// regardless of the host machine's global core.autocrlf setting.
+	args := []string{"-c", "core.autocrlf=false", "clone", "--no-checkout"}
 	if gitutil.SupportsPartialClone() {
 		args = append(args, "--filter=blob:none")
 	}
@@ -101,6 +123,15 @@ func Clone(repoURL, cachePath string) error {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git clone failed for %s: %w", repoURL, err)
+	}
+	// Persist core.autocrlf=false in the repo's local config so all future
+	// git commands (sparse-checkout, checkout, etc.) in this cache dir also
+	// preserve original line endings.
+	cfgCmd := exec.Command("git", "-C", cachePath, "config", "core.autocrlf", "false")
+	cfgCmd.Stdout = os.Stdout
+	cfgCmd.Stderr = os.Stderr
+	if err := cfgCmd.Run(); err != nil {
+		return fmt.Errorf("git config core.autocrlf failed for %s: %w", cachePath, err)
 	}
 	return nil
 }

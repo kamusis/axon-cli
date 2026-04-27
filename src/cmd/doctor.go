@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -180,10 +179,8 @@ func gatherDiagnostics() []DiagnosticResult {
 		results = append(results, checkEnvDeps(cfg)...)
 	}
 
-	// 12. Windows symlink permission
-	if runtime.GOOS == "windows" {
-		results = append(results, checkWindowsSymlink()...)
-	}
+	// 12. Windows symlink permission (no-op on non-Windows via build tags)
+	results = append(results, checkWindowsSymlink()...)
 
 	return results
 }
@@ -740,33 +737,6 @@ func checkPythonDeps(cfg *config.Config) []DiagnosticResult {
 	})
 
 	return res
-}
-
-func checkWindowsSymlink() []DiagnosticResult {
-	cat := "Windows symlink permission"
-	if err := checkWindowsSymlinkPermission(); err != nil {
-		return []DiagnosticResult{{
-			Category:    cat,
-			Passed:      false,
-			Message:     "Administrator rights required to create symlinks",
-			Remediation: "Run axon in an Administrator terminal. WSL users are not affected.",
-		}}
-	}
-	return []DiagnosticResult{{Category: cat, Passed: true, Message: "symlink creation permitted"}}
-}
-
-func checkWindowsSymlinkPermission() error {
-	tmp := os.TempDir()
-	src := filepath.Join(tmp, "axon-doctor-src")
-	dst := filepath.Join(tmp, "axon-doctor-link")
-
-	if err := os.WriteFile(src, []byte("probe"), 0o644); err != nil {
-		return err
-	}
-	defer os.Remove(src)
-	defer os.Remove(dst)
-
-	return os.Symlink(src, dst)
 }
 
 func findConflictFiles(repoPath string) []string {

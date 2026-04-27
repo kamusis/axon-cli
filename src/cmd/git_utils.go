@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -23,7 +24,9 @@ func resolveSkillPath(repoPath, name string) (string, error) {
 	prefixes := []string{"skills", "workflows", "commands"}
 	var matches []string
 	for _, p := range prefixes {
-		candidate := filepath.Join(p, name)
+		// Use path.Join (POSIX) for the Hub-relative candidate so it stays
+		// forward-slash on Windows; use filepath.Join only for OS stat calls.
+		candidate := path.Join(p, name)
 		fullCand := filepath.Join(repoPath, candidate)
 		if _, err := os.Stat(fullCand); err == nil {
 			matches = append(matches, candidate)

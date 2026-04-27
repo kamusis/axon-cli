@@ -10,9 +10,11 @@ import (
 func TestSaveAndLoadAuditResults(t *testing.T) {
 	// Use temp directory for cache
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		orig := os.Getenv(key)
+		os.Setenv(key, tmpDir)
+		defer os.Setenv(key, orig)
+	}
 
 	// Create test files
 	testFile1 := filepath.Join(tmpDir, "test1.md")
@@ -196,9 +198,11 @@ func TestBuildFileInfo(t *testing.T) {
 
 func TestSaveLoadAuditResults_WithPermissions(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		orig := os.Getenv(key)
+		os.Setenv(key, tmpDir)
+		defer os.Setenv(key, orig)
+	}
 
 	testFile := filepath.Join(tmpDir, "test.md")
 	os.WriteFile(testFile, []byte("content"), 0o644)
@@ -234,9 +238,11 @@ func TestSaveLoadAuditResults_WithPermissions(t *testing.T) {
 func TestLoadAuditResults_OldCacheCompat(t *testing.T) {
 	// Write a cache JSON that lacks the "permissions" key (old cache format).
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		orig := os.Getenv(key)
+		os.Setenv(key, tmpDir)
+		defer os.Setenv(key, orig)
+	}
 
 	testFile := filepath.Join(tmpDir, "test.md")
 	os.WriteFile(testFile, []byte("content"), 0o644)

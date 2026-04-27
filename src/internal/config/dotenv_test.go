@@ -7,9 +7,12 @@ import (
 )
 
 func TestLoadDotEnv_NotExist(t *testing.T) {
-	oldHome := os.Getenv("HOME")
-	t.Setenv("HOME", t.TempDir())
-	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
+	tmpDir := t.TempDir()
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		old := os.Getenv(key)
+		t.Setenv(key, tmpDir)
+		t.Cleanup(func() { _ = os.Setenv(key, old) })
+	}
 
 	m, err := LoadDotEnv()
 	if err != nil {
@@ -21,10 +24,12 @@ func TestLoadDotEnv_NotExist(t *testing.T) {
 }
 
 func TestLoadDotEnv_ParsesKeyValue(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		old := os.Getenv(key)
+		t.Setenv(key, home)
+		t.Cleanup(func() { _ = os.Setenv(key, old) })
+	}
 
 	axonDir := filepath.Join(home, ".axon")
 	if err := os.MkdirAll(axonDir, 0o755); err != nil {
@@ -44,10 +49,12 @@ func TestLoadDotEnv_ParsesKeyValue(t *testing.T) {
 }
 
 func TestGetConfigValue_EnvOverridesDotEnv(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		old := os.Getenv(key)
+		t.Setenv(key, home)
+		t.Cleanup(func() { _ = os.Setenv(key, old) })
+	}
 
 	axonDir := filepath.Join(home, ".axon")
 	if err := os.MkdirAll(axonDir, 0o755); err != nil {
@@ -69,10 +76,12 @@ func TestGetConfigValue_EnvOverridesDotEnv(t *testing.T) {
 }
 
 func TestEnsureDotEnvTemplate_DoesNotOverwrite(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		old := os.Getenv(key)
+		t.Setenv(key, home)
+		t.Cleanup(func() { _ = os.Setenv(key, old) })
+	}
 
 	axonDir := filepath.Join(home, ".axon")
 	if err := os.MkdirAll(axonDir, 0o755); err != nil {
@@ -95,10 +104,12 @@ func TestEnsureDotEnvTemplate_DoesNotOverwrite(t *testing.T) {
 }
 
 func TestEnsureDotEnvTemplate_CreatesWhenMissing(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		old := os.Getenv(key)
+		t.Setenv(key, home)
+		t.Cleanup(func() { _ = os.Setenv(key, old) })
+	}
 
 	axonDir := filepath.Join(home, ".axon")
 	if err := os.MkdirAll(axonDir, 0o755); err != nil {

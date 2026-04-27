@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -32,6 +31,9 @@ func init() {
 
 func runLink(cmd *cobra.Command, args []string) error {
 	if err := checkGitAvailable(); err != nil {
+		return err
+	}
+	if err := windowsSymlinkPreflight(); err != nil {
 		return err
 	}
 	cfg, err := config.Load()
@@ -257,20 +259,12 @@ func linkTarget(cfg *config.Config, t config.Target) (state, detail, notInstalle
 	return "backed_up", fmt.Sprintf("backed up → %s", bkp), ""
 }
 
-// createSymlink creates dest → hub, handling platform differences.
+// createSymlink creates dest → hub.
+// On Windows, symlink permission is verified upfront by windowsSymlinkPreflight
+// before this function is ever called.
 func createSymlink(hub, dest, name string) error {
 	_ = name
-	var err error
-	if runtime.GOOS == "windows" {
-		err = os.Symlink(hub, dest)
-		if err != nil {
-			return fmt.Errorf(
-				"symlink failed on Windows — run 'axon doctor' for remediation.\n  Underlying error: %w", err)
-		}
-	} else {
-		err = os.Symlink(hub, dest)
-	}
-	if err != nil {
+	if err := os.Symlink(hub, dest); err != nil {
 		return fmt.Errorf("symlink %s → %s: %w", dest, hub, err)
 	}
 	return nil

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -617,7 +618,7 @@ func sanitizeArchivePath(name string) string {
 			return ""
 		}
 	}
-	clean := filepath.Clean(name)
+	clean := path.Clean(name)
 	if clean == "." {
 		return ""
 	}
