@@ -101,9 +101,11 @@ func runSelfUpdateSwap(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err := cleanupBackup(f.backup); err != nil {
-		printWarn("", fmt.Sprintf("cannot remove backup: %v", err))
-	}
+	// Skip cleaning up the backup here: the swap helper itself is running
+	// from the binary that was renamed to .bak, so Windows will never
+	// allow deleting it while this process is alive.  The stale .bak is
+	// harmless and will be removed at the start of the next update cycle
+	// (line 89 above, via cleanupBackup before os.Rename).
 	printOK("", "Update applied successfully.")
 	return nil
 }
