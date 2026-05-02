@@ -49,7 +49,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	printSection("Symlink Health")
 
 	type brokenEntry struct{ name, msg string }
-	var linked, needLink, realDir []string
+	type realEntry struct {
+		name   string
+		isFile bool
+	}
+	var linked, needLink []string
+	var realPaths []realEntry
 	var broken []brokenEntry
 	notInstalledMap := make(map[string]bool)
 	var notInstalled []string
@@ -88,7 +93,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("stat error: %v", err)})
 
 		case info.Mode()&os.ModeSymlink == 0:
-			realDir = append(realDir, t.Name)
+			realPaths = append(realPaths, realEntry{name: t.Name, isFile: t.IsFile()})
 
 		default:
 			target, err := os.Readlink(dest)
@@ -109,10 +114,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			printOK(s, "OK")
 		}
 	}
-	if len(realDir) > 0 {
-		printBullet("Real directories (not yet converted to symlinks):")
-		for _, s := range realDir {
-			printWarn(s, fmt.Sprintf("real directory — run 'axon link %s' to convert (original will be backed up)", s))
+	if len(realPaths) > 0 {
+		printBullet("Real paths (not yet converted to symlinks):")
+		for _, r := range realPaths {
+			kind := "directory"
+			if r.isFile {
+				kind = "file"
+			}
+			printWarn(r.name, fmt.Sprintf("real %s — run 'axon link %s' to convert (original will be backed up)", kind, r.name))
 		}
 	}
 	if len(needLink) > 0 {
@@ -136,8 +145,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	total := len(targets)
-	fmt.Printf("\n  %d linked / %d real dir / %d not linked / %d not installed (tools) / %d error  (total: %d targets)\n",
-		len(linked), len(realDir), len(needLink), len(notInstalled), len(broken), total)
+	fmt.Printf("\n  %d linked / %d real path / %d not linked / %d not installed (tools) / %d error  (total: %d targets)\n",
+		len(linked), len(realPaths), len(needLink), len(notInstalled), len(broken), total)
 
 	printSection("Hub Git Status")
 	if err := checkGitAvailable(); err != nil {

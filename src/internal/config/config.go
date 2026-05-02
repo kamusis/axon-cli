@@ -17,6 +17,18 @@ type Target struct {
 	Type        string `yaml:"type"`
 }
 
+// IsFile reports whether the target represents a single file rather than a directory.
+func (t Target) IsFile() bool {
+	return t.Type == "file"
+}
+
+// IsDirectory reports whether the target represents a directory. An empty Type
+// is treated as "directory" for backwards compatibility with older axon.yaml
+// files written before the file/directory distinction was introduced.
+func (t Target) IsDirectory() bool {
+	return t.Type == "" || t.Type == "directory"
+}
+
 // Vendor represents a single external repo/subdir source entry in axon.yaml.
 type Vendor struct {
 	Name   string `yaml:"name"`
@@ -41,11 +53,17 @@ type Config struct {
 // The intent is to avoid introducing a separate search_roots config item; instead, any new
 // content directory (e.g. rules/) will naturally appear as a new Target.Source.
 //
+// File-type targets are skipped because their sources are individual files (e.g.
+// global_rules.md), not searchable directories.
+//
 // If no targets are configured (older configs), a backwards-compatible default is returned.
 func (c *Config) EffectiveSearchRoots() []string {
 	seen := make(map[string]struct{})
 	out := make([]string, 0, len(c.Targets))
 	for _, t := range c.Targets {
+		if !t.IsDirectory() {
+			continue
+		}
 		s := strings.TrimSpace(t.Source)
 		if s == "" {
 			continue

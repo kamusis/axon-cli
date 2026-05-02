@@ -366,13 +366,19 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 			continue
 		}
 		if info.Mode()&os.ModeSymlink == 0 {
+			kind := "directory"
+			delTerm := "folder"
+			if t.IsFile() {
+				kind = "file"
+				delTerm = "file"
+			}
 			res = append(res, DiagnosticResult{
 				Category:    cat,
 				Item:        t.Name,
 				Passed:      false,
 				Severity:    DiagnosticSeverityWarn,
-				Message:     fmt.Sprintf("real directory present at %s", dest),
-				Remediation: fmt.Sprintf("delete the folder and run 'axon link %s'", t.Name),
+				Message:     fmt.Sprintf("real %s present at %s", kind, dest),
+				Remediation: fmt.Sprintf("delete the %s and run 'axon link %s'", delTerm, t.Name),
 			})
 			continue
 		}
