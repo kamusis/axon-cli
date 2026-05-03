@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/kamusis/axon-cli/internal/config"
@@ -196,10 +195,9 @@ func linkDirectoryTarget(cfg *config.Config, t config.Target, hubPath, dest stri
 		return "error", fmt.Sprintf("cannot create hub path: %v", err), ""
 	}
 
-	info, lstatErr := os.Lstat(dest)
-
-	// Case: dest does not exist.
-	if os.IsNotExist(lstatErr) {
+	st, info, actualTarget, statErr := checkSymlinkState(dest, hubPath)
+	switch st {
+	case symlinkMissing:
 		if name := notInstalledToolName(t, dest); name != "" {
 			return "", "", name
 		}
@@ -207,17 +205,15 @@ func linkDirectoryTarget(cfg *config.Config, t config.Target, hubPath, dest stri
 			return "error", err.Error(), ""
 		}
 		return "linked", fmt.Sprintf("%s → %s", dest, hubPath), ""
-	}
-	if lstatErr != nil {
-		return "error", fmt.Sprintf("stat: %v", lstatErr), ""
-	}
-
-	// Case: dest is a symlink.
-	if info.Mode()&os.ModeSymlink != 0 {
-		return relinkIfWrong(hubPath, dest, t.Name)
+	case symlinkStatError:
+		return "error", fmt.Sprintf("stat: %v", statErr), ""
+	case symlinkCorrect:
+		return "already", "", ""
+	case symlinkWrong:
+		return relinkIfWrong(hubPath, dest, t.Name, actualTarget)
 	}
 
-	// Case: dest is a real path. Directory targets only accept directories here.
+	// st == symlinkRealEntry — directory targets only accept real directories here.
 	if !info.IsDir() {
 		return "error", fmt.Sprintf("%s is not a directory or symlink", dest), ""
 	}
@@ -274,10 +270,9 @@ func linkFileTarget(cfg *config.Config, t config.Target, hubPath, dest string) (
 		return "error", fmt.Sprintf("stat hub file: %v", err), ""
 	}
 
-	info, lstatErr := os.Lstat(dest)
-
-	// Case: dest does not exist.
-	if os.IsNotExist(lstatErr) {
+	st, info, actualTarget, statErr := checkSymlinkState(dest, hubPath)
+	switch st {
+	case symlinkMissing:
 		if name := notInstalledToolName(t, dest); name != "" {
 			return "", "", name
 		}
@@ -285,22 +280,20 @@ func linkFileTarget(cfg *config.Config, t config.Target, hubPath, dest string) (
 			return "error", err.Error(), ""
 		}
 		return "linked", fmt.Sprintf("%s → %s", dest, hubPath), ""
-	}
-	if lstatErr != nil {
-		return "error", fmt.Sprintf("stat: %v", lstatErr), ""
-	}
-
-	// Case: dest is a symlink.
-	if info.Mode()&os.ModeSymlink != 0 {
-		return relinkIfWrong(hubPath, dest, t.Name)
+	case symlinkStatError:
+		return "error", fmt.Sprintf("stat: %v", statErr), ""
+	case symlinkCorrect:
+		return "already", "", ""
+	case symlinkWrong:
+		return relinkIfWrong(hubPath, dest, t.Name, actualTarget)
 	}
 
-	// Case: dest is a real directory at a file-type destination — refuse.
+	// st == symlinkRealEntry — refuse a real directory at a file-type dest.
 	if info.IsDir() {
 		return "error", fmt.Sprintf("%s is a directory but target type is file", dest), ""
 	}
 
-	// Case: dest is a real file — backup then link.
+	// Real file — backup then link.
 	bkp, err := backupPath(cfg, t.Name)
 	if err != nil {
 		return "error", err.Error(), ""
@@ -318,35 +311,24 @@ func linkFileTarget(cfg *config.Config, t config.Target, hubPath, dest string) (
 // parent directory does not exist (signal that the tool is not installed),
 // or empty string when the parent exists.
 func notInstalledToolName(t config.Target, dest string) string {
-	parent := filepath.Dir(dest)
-	if _, err := os.Stat(parent); !os.IsNotExist(err) {
+	if !isParentMissing(dest) {
 		return ""
 	}
-	baseName := t.Name
-	if idx := strings.LastIndex(t.Name, "-"); idx != -1 {
-		baseName = t.Name[:idx]
-	}
-	return baseName
+	return toolBaseName(t.Name)
 }
 
-// relinkIfWrong handles a destination that is already a symlink: returns
-// "already" when it points at hubPath, otherwise removes the old symlink and
-// re-creates one pointing at hubPath.
-func relinkIfWrong(hubPath, dest, name string) (state, detail, notInstalled string) {
-	current, err := os.Readlink(dest)
-	if err != nil {
-		return "error", fmt.Sprintf("readlink: %v", err), ""
-	}
-	if current == hubPath {
-		return "already", "", ""
-	}
+// relinkIfWrong removes the existing wrong symlink at dest and re-creates one
+// pointing at hubPath. currentTarget is the existing symlink target as already
+// returned by checkSymlinkState; it is included in the detail string so the
+// caller can show "was → /old/path" in the user-facing output.
+func relinkIfWrong(hubPath, dest, name, currentTarget string) (state, detail, notInstalled string) {
 	if err := os.Remove(dest); err != nil {
 		return "error", fmt.Sprintf("cannot remove old symlink: %v", err), ""
 	}
 	if err := createSymlink(hubPath, dest, name); err != nil {
 		return "error", err.Error(), ""
 	}
-	return "relinked", fmt.Sprintf("was → %s", current), ""
+	return "relinked", fmt.Sprintf("was → %s", currentTarget), ""
 }
 
 // createSymlink creates dest → hub.

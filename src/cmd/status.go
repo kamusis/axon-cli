@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -68,13 +67,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 
 		// Check parent dir first — if missing, the tool is not installed at all.
-		parent := filepath.Dir(dest)
-		if _, parentErr := os.Stat(parent); os.IsNotExist(parentErr) {
+		if isParentMissing(dest) {
 			notInstalledCount++
-			baseName := t.Name
-			if idx := strings.LastIndex(t.Name, "-"); idx != -1 {
-				baseName = t.Name[:idx]
-			}
+			baseName := toolBaseName(t.Name)
 			if !notInstalledMap[baseName] {
 				notInstalledMap[baseName] = true
 				notInstalled = append(notInstalled, baseName)
@@ -83,27 +78,18 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 
 		expected := filepath.Join(cfg.RepoPath, t.Source)
-		info, err := os.Lstat(dest)
-
-		switch {
-		case os.IsNotExist(err):
+		state, _, actualTarget, statErr := checkSymlinkState(dest, expected)
+		switch state {
+		case symlinkMissing:
 			needLink = append(needLink, t.Name)
-
-		case err != nil:
-			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("stat error: %v", err)})
-
-		case info.Mode()&os.ModeSymlink == 0:
+		case symlinkStatError:
+			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("stat error: %v", statErr)})
+		case symlinkRealEntry:
 			realPaths = append(realPaths, realEntry{name: t.Name, isFile: t.IsFile()})
-
-		default:
-			target, err := os.Readlink(dest)
-			if err != nil {
-				broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("cannot read symlink: %v", err)})
-			} else if target != expected {
-				broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", target, expected)})
-			} else {
-				linked = append(linked, t.Name)
-			}
+		case symlinkCorrect:
+			linked = append(linked, t.Name)
+		case symlinkWrong:
+			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", actualTarget, expected)})
 		}
 	}
 

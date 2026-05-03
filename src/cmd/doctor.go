@@ -339,13 +339,14 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 			continue
 		}
 
-		parent := filepath.Dir(dest)
-		if _, parentErr := os.Stat(parent); os.IsNotExist(parentErr) {
+		if isParentMissing(dest) {
 			continue // Skip silently in doctor, target not installed
 		}
 
-		info, err := os.Lstat(dest)
-		if os.IsNotExist(err) {
+		expected := filepath.Join(cfg.RepoPath, t.Source)
+		state, _, actualTarget, statErr := checkSymlinkState(dest, expected)
+		switch state {
+		case symlinkMissing:
 			targetName := t.Name // capture loop var
 			res = append(res, DiagnosticResult{
 				Category:    cat,
@@ -360,12 +361,10 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 				},
 			})
 			continue
-		}
-		if err != nil {
-			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Severity: DiagnosticSeverityError, Message: fmt.Sprintf("stat error: %v", err)})
+		case symlinkStatError:
+			res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: false, Severity: DiagnosticSeverityError, Message: fmt.Sprintf("stat error: %v", statErr)})
 			continue
-		}
-		if info.Mode()&os.ModeSymlink == 0 {
+		case symlinkRealEntry:
 			kind := "directory"
 			delTerm := "folder"
 			if t.IsFile() {
@@ -381,17 +380,14 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 				Remediation: fmt.Sprintf("delete the %s and run 'axon link %s'", delTerm, t.Name),
 			})
 			continue
-		}
-		expected := filepath.Join(cfg.RepoPath, t.Source)
-		actual, _ := os.Readlink(dest)
-		if actual != expected {
+		case symlinkWrong:
 			targetName := t.Name // capture
 			res = append(res, DiagnosticResult{
 				Category:    cat,
 				Item:        t.Name,
 				Passed:      false,
 				Severity:    DiagnosticSeverityWarn,
-				Message:     fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", actual, expected),
+				Message:     fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", actualTarget, expected),
 				Remediation: fmt.Sprintf("run 'axon link %s'", targetName),
 				CanFix:      true,
 				FixAction: func() error {
@@ -400,6 +396,7 @@ func checkSymlinks(cfg *config.Config) []DiagnosticResult {
 			})
 			continue
 		}
+		// state == symlinkCorrect
 		res = append(res, DiagnosticResult{Category: cat, Item: t.Name, Passed: true, Message: "OK"})
 	}
 

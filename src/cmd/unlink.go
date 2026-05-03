@@ -74,32 +74,29 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 		}
 
 		// If parent doesn't exist, tool isn't installed.
-		parent := filepath.Dir(dest)
-		if _, parentErr := os.Stat(parent); os.IsNotExist(parentErr) {
-			baseName := t.Name
-			if idx := strings.LastIndex(t.Name, "-"); idx != -1 {
-				baseName = t.Name[:idx]
-			}
-			notInstalledMap[baseName] = true
+		if isParentMissing(dest) {
+			notInstalledMap[toolBaseName(t.Name)] = true
 			continue
 		}
 
-		info, err := os.Lstat(dest)
-		if os.IsNotExist(err) {
+		// Pass empty expected — unlink doesn't care where a symlink points,
+		// only whether dest is a symlink at all. checkSymlinkState reports
+		// any valid symlink as symlinkCorrect when expected is "".
+		state, _, _, statErr := checkSymlinkState(dest, "")
+		switch state {
+		case symlinkMissing:
 			results = append(results, unlinkResult{t.Name, "not_exist", ""})
 			continue
-		}
-		if err != nil {
+		case symlinkStatError:
 			results = append(results, unlinkResult{t.Name, "error",
-				fmt.Sprintf("stat: %v", err)})
+				fmt.Sprintf("stat: %v", statErr)})
 			continue
-		}
-
-		if info.Mode()&os.ModeSymlink == 0 {
+		case symlinkRealEntry:
 			results = append(results, unlinkResult{t.Name, "not_symlink",
 				fmt.Sprintf("%s is not a symlink", dest)})
 			continue
 		}
+		// state == symlinkCorrect — dest is a symlink, proceed to remove.
 
 		if err := os.Remove(dest); err != nil {
 			results = append(results, unlinkResult{t.Name, "error",
