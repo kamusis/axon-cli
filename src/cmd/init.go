@@ -205,12 +205,8 @@ func importExistingSkills(cfg *config.Config) error {
 		}
 
 		// Check parent dir — if missing, the tool is not installed at all.
-		parent := filepath.Dir(dest)
-		if _, parentErr := os.Stat(parent); os.IsNotExist(parentErr) {
-			baseName := t.Name
-			if idx := strings.LastIndex(t.Name, "-"); idx != -1 {
-				baseName = t.Name[:idx]
-			}
+		if isParentMissing(dest) {
+			baseName := toolBaseName(t.Name)
 			if !notInstalledMap[baseName] {
 				notInstalledMap[baseName] = true
 				notInstalled = append(notInstalled, baseName)
@@ -218,19 +214,20 @@ func importExistingSkills(cfg *config.Config) error {
 			continue
 		}
 
-		// Only import from real (non-symlinked) directories.
-		info, err := os.Lstat(dest)
-		if os.IsNotExist(err) {
+		// Only import from real (non-symlinked) directories. Pass empty
+		// expected so any valid symlink is reported as symlinkCorrect.
+		state, info, _, statErr := checkSymlinkState(dest, "")
+		switch state {
+		case symlinkMissing:
 			notFound = append(notFound, t.Name)
 			continue
-		}
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
+		case symlinkStatError:
+			return statErr
+		case symlinkCorrect:
 			alreadyLinked = append(alreadyLinked, t.Name)
 			continue
 		}
+		// state == symlinkRealEntry
 		if !info.IsDir() {
 			notFound = append(notFound, t.Name)
 			continue
