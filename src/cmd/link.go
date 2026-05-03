@@ -168,10 +168,14 @@ func runLink(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// linkTarget applies the 5-case linking logic for a single target.
+// linkTarget applies the linking logic for a single target.
 // Returns (state, detail, notInstalledToolName).
 // If notInstalledToolName is non-empty, the tool is not installed and the
 // caller should group it separately; state/detail are meaningless in that case.
+//
+// File-type targets (t.Type == "file") link a single Hub file to a destination
+// path with a possibly different filename (e.g. global_rules.md → ~/.codex/AGENTS.md).
+// Directory-type targets (default) link a Hub directory to a destination directory.
 func linkTarget(cfg *config.Config, t config.Target) (state, detail, notInstalled string) {
 	dest, err := config.ExpandPath(t.Destination)
 	if err != nil {
@@ -179,6 +183,14 @@ func linkTarget(cfg *config.Config, t config.Target) (state, detail, notInstalle
 	}
 	hubPath := filepath.Join(cfg.RepoPath, t.Source)
 
+	if t.IsFile() {
+		return linkFileTarget(cfg, t, hubPath, dest)
+	}
+	return linkDirectoryTarget(cfg, t, hubPath, dest)
+}
+
+// linkDirectoryTarget handles the linking logic when the target source is a directory.
+func linkDirectoryTarget(cfg *config.Config, t config.Target, hubPath, dest string) (state, detail, notInstalled string) {
 	// Ensure Hub source directory exists.
 	if err := os.MkdirAll(hubPath, 0o755); err != nil {
 		return "error", fmt.Sprintf("cannot create hub path: %v", err), ""
@@ -186,15 +198,10 @@ func linkTarget(cfg *config.Config, t config.Target) (state, detail, notInstalle
 
 	info, lstatErr := os.Lstat(dest)
 
-	// ── Case: Does not exist ───────────────────────────────────────────────────
+	// Case: dest does not exist.
 	if os.IsNotExist(lstatErr) {
-		parent := filepath.Dir(dest)
-		if _, parentErr := os.Stat(parent); os.IsNotExist(parentErr) {
-			baseName := t.Name
-			if idx := strings.LastIndex(t.Name, "-"); idx != -1 {
-				baseName = t.Name[:idx]
-			}
-			return "", "", baseName
+		if name := notInstalledToolName(t, dest); name != "" {
+			return "", "", name
 		}
 		if err := createSymlink(hubPath, dest, t.Name); err != nil {
 			return "error", err.Error(), ""
@@ -205,26 +212,12 @@ func linkTarget(cfg *config.Config, t config.Target) (state, detail, notInstalle
 		return "error", fmt.Sprintf("stat: %v", lstatErr), ""
 	}
 
-	// ── Symlink cases ──────────────────────────────────────────────────────────
+	// Case: dest is a symlink.
 	if info.Mode()&os.ModeSymlink != 0 {
-		current, err := os.Readlink(dest)
-		if err != nil {
-			return "error", fmt.Sprintf("readlink: %v", err), ""
-		}
-		if current == hubPath {
-			return "already", "", ""
-		}
-		// Wrong symlink — remove and re-create.
-		if err := os.Remove(dest); err != nil {
-			return "error", fmt.Sprintf("cannot remove old symlink: %v", err), ""
-		}
-		if err := createSymlink(hubPath, dest, t.Name); err != nil {
-			return "error", err.Error(), ""
-		}
-		return "relinked", fmt.Sprintf("was → %s", current), ""
+		return relinkIfWrong(hubPath, dest, t.Name)
 	}
 
-	// ── Real directory ─────────────────────────────────────────────────────────
+	// Case: dest is a real path. Directory targets only accept directories here.
 	if !info.IsDir() {
 		return "error", fmt.Sprintf("%s is not a directory or symlink", dest), ""
 	}
@@ -246,7 +239,7 @@ func linkTarget(cfg *config.Config, t config.Target) (state, detail, notInstalle
 	}
 
 	// Non-empty directory — backup then link.
-	bkp, err := backupDir(cfg, t.Name)
+	bkp, err := backupPath(cfg, t.Name)
 	if err != nil {
 		return "error", err.Error(), ""
 	}
@@ -257,6 +250,103 @@ func linkTarget(cfg *config.Config, t config.Target) (state, detail, notInstalle
 		return "error", err.Error(), ""
 	}
 	return "backed_up", fmt.Sprintf("backed up → %s", bkp), ""
+}
+
+// linkFileTarget handles the linking logic when the target source is a single file.
+// The Hub side ensures the source file's parent directory exists and creates an
+// empty placeholder file if the source is missing (so the symlink is never
+// dangling). The destination side handles the same not-exist / symlink /
+// real-file cases as directory targets, but a real directory at the destination
+// is treated as an unexpected error rather than backed up.
+func linkFileTarget(cfg *config.Config, t config.Target, hubPath, dest string) (state, detail, notInstalled string) {
+	// Ensure Hub parent dir exists.
+	if err := os.MkdirAll(filepath.Dir(hubPath), 0o755); err != nil {
+		return "error", fmt.Sprintf("cannot create hub path: %v", err), ""
+	}
+	// Touch the Hub file if it doesn't exist so the symlink resolves.
+	if _, err := os.Stat(hubPath); os.IsNotExist(err) {
+		f, err := os.OpenFile(hubPath, os.O_RDWR|os.O_CREATE, 0o644)
+		if err != nil {
+			return "error", fmt.Sprintf("cannot create hub file: %v", err), ""
+		}
+		_ = f.Close()
+	} else if err != nil {
+		return "error", fmt.Sprintf("stat hub file: %v", err), ""
+	}
+
+	info, lstatErr := os.Lstat(dest)
+
+	// Case: dest does not exist.
+	if os.IsNotExist(lstatErr) {
+		if name := notInstalledToolName(t, dest); name != "" {
+			return "", "", name
+		}
+		if err := createSymlink(hubPath, dest, t.Name); err != nil {
+			return "error", err.Error(), ""
+		}
+		return "linked", fmt.Sprintf("%s → %s", dest, hubPath), ""
+	}
+	if lstatErr != nil {
+		return "error", fmt.Sprintf("stat: %v", lstatErr), ""
+	}
+
+	// Case: dest is a symlink.
+	if info.Mode()&os.ModeSymlink != 0 {
+		return relinkIfWrong(hubPath, dest, t.Name)
+	}
+
+	// Case: dest is a real directory at a file-type destination — refuse.
+	if info.IsDir() {
+		return "error", fmt.Sprintf("%s is a directory but target type is file", dest), ""
+	}
+
+	// Case: dest is a real file — backup then link.
+	bkp, err := backupPath(cfg, t.Name)
+	if err != nil {
+		return "error", err.Error(), ""
+	}
+	if err := os.Rename(dest, bkp); err != nil {
+		return "error", fmt.Sprintf("backup failed: %v", err), ""
+	}
+	if err := createSymlink(hubPath, dest, t.Name); err != nil {
+		return "error", err.Error(), ""
+	}
+	return "backed_up", fmt.Sprintf("backed up → %s", bkp), ""
+}
+
+// notInstalledToolName returns the tool's base name when the destination's
+// parent directory does not exist (signal that the tool is not installed),
+// or empty string when the parent exists.
+func notInstalledToolName(t config.Target, dest string) string {
+	parent := filepath.Dir(dest)
+	if _, err := os.Stat(parent); !os.IsNotExist(err) {
+		return ""
+	}
+	baseName := t.Name
+	if idx := strings.LastIndex(t.Name, "-"); idx != -1 {
+		baseName = t.Name[:idx]
+	}
+	return baseName
+}
+
+// relinkIfWrong handles a destination that is already a symlink: returns
+// "already" when it points at hubPath, otherwise removes the old symlink and
+// re-creates one pointing at hubPath.
+func relinkIfWrong(hubPath, dest, name string) (state, detail, notInstalled string) {
+	current, err := os.Readlink(dest)
+	if err != nil {
+		return "error", fmt.Sprintf("readlink: %v", err), ""
+	}
+	if current == hubPath {
+		return "already", "", ""
+	}
+	if err := os.Remove(dest); err != nil {
+		return "error", fmt.Sprintf("cannot remove old symlink: %v", err), ""
+	}
+	if err := createSymlink(hubPath, dest, name); err != nil {
+		return "error", err.Error(), ""
+	}
+	return "relinked", fmt.Sprintf("was → %s", current), ""
 }
 
 // createSymlink creates dest → hub.
@@ -270,16 +360,18 @@ func createSymlink(hub, dest, name string) error {
 	return nil
 }
 
-// backupDir returns (and creates) the timestamped backup path for a target.
-func backupDir(_ *config.Config, targetName string) (string, error) {
+// backupPath returns (and ensures the parent of) the timestamped backup path
+// for a target. The path shape is the same for both file and directory
+// targets: ~/.axon/backups/{targetName}_{timestamp}.
+func backupPath(_ *config.Config, targetName string) (string, error) {
 	axonDir, err := config.AxonDir()
 	if err != nil {
 		return "", err
 	}
 	ts := time.Now().Format("20060102150405")
-	dir := filepath.Join(axonDir, "backups", targetName+"_"+ts)
-	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+	path := filepath.Join(axonDir, "backups", targetName+"_"+ts)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("cannot create backups dir: %w", err)
 	}
-	return dir, nil
+	return path, nil
 }

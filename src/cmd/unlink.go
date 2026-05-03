@@ -208,8 +208,9 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// latestBackup returns the path of the most recent backup directory for a
-// target, or "" if none exist.
+// latestBackup returns the path of the most recent backup entry for a target,
+// or "" if none exist. Both file-type and directory-type backups are matched
+// solely by name prefix, so file restores work the same way as directory restores.
 func latestBackup(_ *config.Config, targetName string) (string, error) {
 	axonDir, err := config.AxonDir()
 	if err != nil {
@@ -235,7 +236,7 @@ func latestBackup(_ *config.Config, targetName string) (string, error) {
 	var candidates []candidate
 
 	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+		if !strings.HasPrefix(e.Name(), prefix) {
 			continue
 		}
 		ts := strings.TrimPrefix(e.Name(), prefix)
