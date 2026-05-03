@@ -15,11 +15,19 @@ Axon keeps your AI-editor/CLI/agent skills, workflows, and commands in sync acro
   skills/
   workflows/
   commands/
+  global_rules.md      ← (optional) one file fanned out to many tools
 
+# Directory targets — symlink a Hub directory to a tool's directory
 ~/.codeium/windsurf/skills     → symlink → Hub/skills/
 ~/.gemini/antigravity/...      → symlink → Hub/skills/
 ~/.cursor/skills               → symlink → Hub/skills/
-... (20 targets out of the box)
+... (20 directory targets out of the box)
+
+# File targets — symlink one Hub file to many tool-specific filenames
+# (opt-in: hand-edit axon.yaml; not part of the default targets)
+~/.codex/AGENTS.md             → symlink → Hub/global_rules.md
+~/.claude/CLAUDE.md            → symlink → Hub/global_rules.md
+~/.gemini/GEMINI.md            → symlink → Hub/global_rules.md
 ```
 
 ## Quick Start
@@ -527,12 +535,29 @@ upstream: https://github.com/kamusis/axon-hub.git
 # ... (excludes section)
 
 targets:
-  # ... (pre-configured tool targets)
+  # ── Directory targets (default) — symlink a Hub directory to a tool directory ──
   - name: windsurf-skills
     source: skills
     destination: ~/.codeium/windsurf/skills
     type: directory
-  # ... other targets
+  # ... other directory targets
+
+  # ── File targets (opt-in) — symlink one Hub file to a tool-specific filename ──
+  # The same `source` can be reused across multiple targets, so a single
+  # `global_rules.md` in the Hub keeps `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+  # etc. in sync across editors.
+  - name: codex-rules
+    source: global_rules.md
+    destination: ~/.codex/AGENTS.md
+    type: file
+  - name: claude-rules
+    source: global_rules.md
+    destination: ~/.claude/CLAUDE.md
+    type: file
+  - name: gemini-rules
+    source: global_rules.md
+    destination: ~/.gemini/GEMINI.md
+    type: file
 
 # === USER ADDED: External Sources (Optional) ===
 # These are synced via `axon vendor sync`
@@ -543,6 +568,8 @@ vendors:
     dest: skills/community-skill
     ref: main
 ```
+
+The `type` field controls how each target is linked. `type: directory` (the default if omitted) symlinks a Hub directory to a tool's directory. `type: file` symlinks a single Hub file to a tool-specific filename — useful for per-editor rules files where each tool expects a different name (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, …) but the content should be shared. File-type targets are not added by `axon init`; add them yourself when you need them.
 
 ## Prerequisites
 
