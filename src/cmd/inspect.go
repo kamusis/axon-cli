@@ -175,7 +175,7 @@ func runInspect(_ *cobra.Command, args []string) error {
 		if i > 0 {
 			fmt.Println(strings.Repeat("─", 50))
 		}
-		printInspect(p)
+		printInspect(p, cfg.RepoPath)
 	}
 	return nil
 }
@@ -272,7 +272,7 @@ func uniqueSourceRoots(cfg *config.Config) []string {
 }
 
 // printInspect displays the formatted inspection output for one path.
-func printInspect(itemPath string) {
+func printInspect(itemPath, repoPath string) {
 	info, err := os.Stat(itemPath)
 	if err != nil {
 		printErr("", fmt.Sprintf("Error accessing path: %v", err))
@@ -300,6 +300,11 @@ func printInspect(itemPath string) {
 	category := filepath.Base(filepath.Dir(itemPath))
 	if category == "." || category == "/" || category == "" {
 		category = "Item"
+	}
+	// File targets sitting directly in the repo root have an unhelpful parent
+	// dir name ("repo"). Use "file" so the label renders as "File".
+	if !isDir && repoPath != "" && filepath.Dir(itemPath) == repoPath {
+		category = "file"
 	}
 
 	icon := inspectIconFile // Default: Small Diamond (Custom File)

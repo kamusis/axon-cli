@@ -139,6 +139,43 @@ func TestListItems_DeduplicatesCategories(t *testing.T) {
 	}
 }
 
+// TestListItems_FileTypeTargetsGrouped — multiple file-type targets sharing same source
+// appear as a single "files" category at the end, deduplicated.
+func TestListItems_FileTypeTargetsGrouped(t *testing.T) {
+	repo := t.TempDir()
+	makeDir(t, repo, "skills/foo")
+	makeFile(t, repo, "global_rules.md")
+
+	cfg := &config.Config{
+		RepoPath: repo,
+		Targets: []config.Target{
+			{Name: "claude-skills", Source: "skills", Destination: "/tmp/a", Type: "directory"},
+			{Name: "codex-rules", Source: "global_rules.md", Destination: "/tmp/b", Type: "file"},
+			{Name: "gemini-rules", Source: "global_rules.md", Destination: "/tmp/c", Type: "file"},
+		},
+	}
+
+	cats := listItems(cfg)
+
+	// Expect 2 categories: "skills" + "files"
+	if len(cats) != 2 {
+		t.Fatalf("expected 2 categories (skills + files), got %d", len(cats))
+	}
+	if cats[0].Label != "skills" {
+		t.Errorf("expected first label 'skills', got %q", cats[0].Label)
+	}
+	if cats[1].Label != "files" {
+		t.Errorf("expected second label 'files', got %q", cats[1].Label)
+	}
+	// Deduplicated: only one entry for global_rules.md
+	if len(cats[1].Items) != 1 {
+		t.Errorf("expected 1 file item (deduplicated), got %d", len(cats[1].Items))
+	}
+	if cats[1].Items[0].Name != "global_rules.md" {
+		t.Errorf("expected file name 'global_rules.md', got %q", cats[1].Items[0].Name)
+	}
+}
+
 // TestListItems_SkipsHidden — hidden entries (dot-prefixed) must not appear.
 func TestListItems_SkipsHidden(t *testing.T) {
 	repo := t.TempDir()

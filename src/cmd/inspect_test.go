@@ -189,4 +189,21 @@ func TestResolveInspectPaths(t *testing.T) {
 			t.Error("expected error for nonexistent item")
 		}
 	})
+
+	t.Run("file-type target by filename", func(t *testing.T) {
+		os.WriteFile(filepath.Join(repo, "global_rules.md"), []byte("# Rules"), 0o644)
+		cfgWithFile := &config.Config{
+			RepoPath: repo,
+			Targets: []config.Target{
+				{Name: "codex-rules", Source: "global_rules.md", Destination: "/tmp/x", Type: "file"},
+			},
+		}
+		paths, err := resolveInspectPaths(cfgWithFile, "global_rules.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(paths) != 1 || filepath.Base(paths[0]) != "global_rules.md" {
+			t.Errorf("unexpected paths: %v", paths)
+		}
+	})
 }
