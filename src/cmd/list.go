@@ -52,6 +52,9 @@ func listItems(cfg *config.Config) []categoryItems {
 	var result []categoryItems
 
 	for _, t := range cfg.Targets {
+		if t.IsFile() {
+			continue // file-type targets are single files, not browsable categories
+		}
 		src := strings.TrimSpace(t.Source)
 		if src == "" || seen[src] {
 			continue

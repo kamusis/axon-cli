@@ -139,6 +139,30 @@ func TestListItems_DeduplicatesCategories(t *testing.T) {
 	}
 }
 
+// TestListItems_SkipsFileTypeTargets — file-type targets must not appear as categories.
+func TestListItems_SkipsFileTypeTargets(t *testing.T) {
+	repo := t.TempDir()
+	makeDir(t, repo, "skills/foo")
+	makeFile(t, repo, "global_rules.md")
+
+	cfg := &config.Config{
+		RepoPath: repo,
+		Targets: []config.Target{
+			{Name: "claude-skills", Source: "skills", Destination: "/tmp/a", Type: "directory"},
+			{Name: "codex-rules", Source: "global_rules.md", Destination: "/tmp/b", Type: "file"},
+		},
+	}
+
+	cats := listItems(cfg)
+
+	if len(cats) != 1 {
+		t.Fatalf("expected 1 category (file-type target must be skipped), got %d", len(cats))
+	}
+	if cats[0].Label != "skills" {
+		t.Errorf("expected label 'skills', got %q", cats[0].Label)
+	}
+}
+
 // TestListItems_SkipsHidden — hidden entries (dot-prefixed) must not appear.
 func TestListItems_SkipsHidden(t *testing.T) {
 	repo := t.TempDir()
