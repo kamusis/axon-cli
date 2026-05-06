@@ -46,14 +46,23 @@ type categoryItems struct {
 }
 
 // listItems derives unique categories from cfg.Targets and scans each
-// source directory for immediate children.
+// source directory for immediate children. File-type targets are collected
+// separately and returned as a single "files" category at the end.
 func listItems(cfg *config.Config) []categoryItems {
 	seen := make(map[string]bool)
 	var result []categoryItems
+	seenFiles := make(map[string]bool)
+	var fileItems []itemInfo
 
 	for _, t := range cfg.Targets {
 		if t.IsFile() {
-			continue // file-type targets are single files, not browsable categories
+			src := strings.TrimSpace(t.Source)
+			if src == "" || seenFiles[src] {
+				continue
+			}
+			seenFiles[src] = true
+			fileItems = append(fileItems, itemInfo{Name: filepath.Base(src), IsDir: false})
+			continue
 		}
 		src := strings.TrimSpace(t.Source)
 		if src == "" || seen[src] {
@@ -80,6 +89,10 @@ func listItems(cfg *config.Config) []categoryItems {
 		}
 		// Always include the category, even if empty or source dir missing.
 		result = append(result, categoryItems{Label: label, Items: items})
+	}
+
+	if len(fileItems) > 0 {
+		result = append(result, categoryItems{Label: "files", Items: fileItems})
 	}
 	return result
 }
