@@ -381,6 +381,9 @@ Categories are derived from the unique `source:` paths in your `axon.yaml`. For 
 
 - `+` for directories (e.g., typical skill folders)
 - `·` for files (e.g., flat markdown workflows or rules)
+- `-` when a category is empty
+
+`type: file` targets (single-file syncs such as a shared `global_rules.md`) are collected and displayed as a deduplicated **Files** section at the end, regardless of how many targets point to the same source.
 
 Example output:
 
@@ -397,6 +400,9 @@ Example output:
 
 ● Commands
   -  (empty)
+
+● Files
+  ·  global_rules.md
 ```
 
 ### `axon search` — Keyword + Semantic
