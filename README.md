@@ -525,7 +525,7 @@ vendors:
 
 - `name`: Unique identifier for the vendor entry.
 - `repo`: The Git URL of the external repository.
-- `subdir`: The directory inside the external repo you want to import.
+- `subdir`: The directory inside the external repo you want to import. Use `"."` to sync the entire repository root.
 - `dest`: The destination path relative to your Hub root (`~/.axon/repo/`).
 - `ref`: (Optional) The Git branch, tag, or SHA to pin to.
 
