@@ -86,5 +86,18 @@ func checkSymlinkState(dest, expected string) (state symlinkState, info os.FileI
 	if expected == "" || actual == expected {
 		return symlinkCorrect, info, actual, nil
 	}
+	// The immediate target differs from expected, but the link may be a
+	// chain (dest -> intermediate symlink -> hub) whose final hop lands on
+	// expected. os.Readlink returns only the first hop, so resolve the full
+	// chain and compare against the resolved expected path. This prevents
+	// false-positive "wrong target" reports in status/doctor and stops link
+	// from destroying an intentional intermediate symlink layer.
+	if resolvedDest, destErr := filepath.EvalSymlinks(dest); destErr == nil {
+		if resolvedExpected, expErr := filepath.EvalSymlinks(expected); expErr == nil {
+			if resolvedDest == resolvedExpected {
+				return symlinkCorrect, info, actual, nil
+			}
+		}
+	}
 	return symlinkWrong, info, actual, nil
 }

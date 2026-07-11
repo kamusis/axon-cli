@@ -167,6 +167,61 @@ func TestCheckSymlinkState(t *testing.T) {
 		}
 	})
 
+	t.Run("nested_symlink_resolves_to_hub", func(t *testing.T) {
+		// Reproduces issue #32: dest -> intermediate symlink -> hubA.
+		// The immediate Readlink target is the intermediate, not hubA,
+		// but the chain ultimately resolves to hubA and should be
+		// classified as symlinkCorrect so status/doctor don't false-positive
+		// and link doesn't destroy the intermediate layer.
+		intermediate := filepath.Join(tmp, "intermediate-link")
+		if err := os.Symlink(hubA, intermediate); err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join(tmp, "nested-link")
+		if err := os.Symlink(intermediate, dest); err != nil {
+			t.Fatal(err)
+		}
+		state, info, actual, err := checkSymlinkState(dest, hubA)
+		if state != symlinkCorrect {
+			t.Errorf("state = %v, want symlinkCorrect (chain resolves to expected)", state)
+		}
+		if info == nil {
+			t.Errorf("info must be populated for symlinkCorrect")
+		}
+		if actual != intermediate {
+			t.Errorf("actualTarget = %q, want %q (immediate link target)", actual, intermediate)
+		}
+		if err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+	})
+
+	t.Run("nested_symlink_resolves_to_wrong_hub", func(t *testing.T) {
+		// Chain lands on hubB, not the expected hubA — must still be
+		// classified as symlinkWrong so link corrects it.
+		intermediate := filepath.Join(tmp, "intermediate-wrong")
+		if err := os.Symlink(hubB, intermediate); err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join(tmp, "nested-wrong-link")
+		if err := os.Symlink(intermediate, dest); err != nil {
+			t.Fatal(err)
+		}
+		state, info, actual, err := checkSymlinkState(dest, hubA)
+		if state != symlinkWrong {
+			t.Errorf("state = %v, want symlinkWrong (chain resolves to hubB, not hubA)", state)
+		}
+		if info == nil {
+			t.Errorf("info must be populated for symlinkWrong")
+		}
+		if actual != intermediate {
+			t.Errorf("actualTarget = %q, want %q (immediate link target)", actual, intermediate)
+		}
+		if err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+	})
+
 	t.Run("stat_error_on_dangling_parent", func(t *testing.T) {
 		// Create a file then make its parent unreadable to simulate a stat
 		// error path. On systems where this is unreliable (root, Windows)
