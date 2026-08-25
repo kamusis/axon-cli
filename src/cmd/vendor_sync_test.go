@@ -57,6 +57,36 @@ func TestValidateVendors_Valid(t *testing.T) {
 	}
 }
 
+// ── selectVendorByName ────────────────────────────────────────────────────────
+
+func TestSelectVendorByName_Found(t *testing.T) {
+	vendors := []config.Vendor{
+		{Name: "v1", Repo: "https://github.com/x/y.git", Subdir: "a", Dest: "skills/a"},
+		{Name: "v2", Repo: "https://github.com/x/z.git", Subdir: "b", Dest: "skills/b"},
+	}
+	got, err := selectVendorByName(vendors, "v2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "v2" {
+		t.Errorf("selectVendorByName(v2) = %+v, want single entry named v2", got)
+	}
+}
+
+func TestSelectVendorByName_NotFound(t *testing.T) {
+	vendors := []config.Vendor{
+		{Name: "v1", Repo: "https://github.com/x/y.git", Subdir: "a", Dest: "skills/a"},
+		{Name: "v2", Repo: "https://github.com/x/z.git", Subdir: "b", Dest: "skills/b"},
+	}
+	_, err := selectVendorByName(vendors, "missing")
+	if err == nil {
+		t.Fatal("expected error for unknown vendor name")
+	}
+	if !strings.Contains(err.Error(), "v1") || !strings.Contains(err.Error(), "v2") {
+		t.Errorf("error should list configured vendor names, got: %v", err)
+	}
+}
+
 // ── syncVendorEntry (integration-style with a local git repo as source) ───────
 
 // makeLocalVendorRepo creates a minimal git repo with a subdir containing a file,

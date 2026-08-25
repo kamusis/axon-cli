@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
 	"github.com/kamusis/axon-cli/internal/vendor"
@@ -10,13 +11,17 @@ import (
 )
 
 var vendorSyncCmd = &cobra.Command{
-	Use:   "sync",
-	Short: "Sync all configured vendor entries into the Hub",
+	Use:   "sync [name]",
+	Short: "Sync configured vendor entries into the Hub",
 	Long: `vendor sync fetches each external repo/subdir listed in the 'vendors'
 block of ~/.axon/axon.yaml and mirrors it as plain files into the Hub.
 
+With no argument, every configured vendor entry is synced. Given a name,
+only the matching vendor entry (its 'name' field in axon.yaml) is synced.
+
 Vendor content overwrites the Hub destination on every run (force-overwrite).
 No nested .git directories are written inside the Hub.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runVendorSync,
 }
 
@@ -24,7 +29,7 @@ func init() {
 	vendorCmd.AddCommand(vendorSyncCmd)
 }
 
-func runVendorSync(_ *cobra.Command, _ []string) error {
+func runVendorSync(_ *cobra.Command, args []string) error {
 	if err := checkGitAvailable(); err != nil {
 		return err
 	}
@@ -36,6 +41,15 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 
 	if len(cfg.Vendors) == 0 {
 		return fmt.Errorf("no vendors configured — add a 'vendors' block to ~/.axon/axon.yaml")
+	}
+
+	vendors := cfg.Vendors
+	if len(args) == 1 {
+		name := args[0]
+		vendors, err = selectVendorByName(cfg.Vendors, name)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Warn if rsync is unavailable (we'll fall back to rm+cp).
@@ -59,7 +73,7 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 	var syncedNames, skippedNames []string
 	var failedEntries []failedEntry
 
-	for _, v := range cfg.Vendors {
+	for _, v := range vendors {
 		ok, err := syncVendorEntry(cfg.RepoPath, v)
 		if err != nil {
 			printErr(v.Name, "failed")
@@ -129,6 +143,21 @@ func validateVendors(vendors []config.Vendor) error {
 		seen[v.Name] = struct{}{}
 	}
 	return nil
+}
+
+// selectVendorByName returns the single vendor entry matching name, or an
+// error listing the configured names when no entry matches.
+func selectVendorByName(vendors []config.Vendor, name string) ([]config.Vendor, error) {
+	for _, v := range vendors {
+		if v.Name == name {
+			return []config.Vendor{v}, nil
+		}
+	}
+	names := make([]string, len(vendors))
+	for i, v := range vendors {
+		names[i] = v.Name
+	}
+	return nil, fmt.Errorf("no vendor named %q in ~/.axon/axon.yaml — configured vendors: %s", name, strings.Join(names, ", "))
 }
 
 // syncVendorEntry runs the full sync flow for one vendor entry.
