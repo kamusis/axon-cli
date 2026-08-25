@@ -48,6 +48,15 @@ func runVendorSync(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Guard the vendor cache and Hub against a concurrent `axon vendor sync`
+	// run — git fetch/checkout and rsync --delete are not safe to run
+	// concurrently against the same directories.
+	_, release, err := vendor.AcquireSyncLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	printSection("Vendor Sync")
 
 	type failedEntry struct {
