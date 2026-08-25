@@ -134,6 +134,56 @@ func TestMirror_Fallback_OverwritesExisting(t *testing.T) {
 	assertFileExists(t, filepath.Join(destDir, "SKILL.md"))
 }
 
+func TestMirror_Rsync_ExcludesGitDir(t *testing.T) {
+	hub, src := setupMirrorDirs(t)
+
+	// Simulate a vendor cache repo root (subdir: ".") that still has its .git dir.
+	gitDir := filepath.Join(src, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := RsyncAvailable
+	RsyncAvailable = func() bool { return true }
+	defer func() { RsyncAvailable = orig }()
+
+	if err := Mirror(hub, "skills/foo", src); err != nil {
+		if strings.Contains(err.Error(), "rsync") {
+			t.Skip("rsync not available in test environment")
+		}
+		t.Fatalf("Mirror: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(hub, "skills", "foo", "SKILL.md"))
+	assertFileNotExists(t, filepath.Join(hub, "skills", "foo", ".git"))
+}
+
+func TestMirror_Fallback_ExcludesGitDir(t *testing.T) {
+	hub, src := setupMirrorDirs(t)
+
+	gitDir := filepath.Join(src, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := RsyncAvailable
+	RsyncAvailable = func() bool { return false }
+	defer func() { RsyncAvailable = orig }()
+
+	if err := Mirror(hub, "skills/foo", src); err != nil {
+		t.Fatalf("Mirror fallback: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(hub, "skills", "foo", "SKILL.md"))
+	assertFileNotExists(t, filepath.Join(hub, "skills", "foo", ".git"))
+}
+
 func TestMirror_MissingParent_ReturnsError(t *testing.T) {
 	hub := t.TempDir()
 	// Do NOT create "skills/" inside hub — parent is missing.
@@ -153,5 +203,12 @@ func assertFileExists(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Errorf("expected file %q to exist", path)
+	}
+}
+
+func assertFileNotExists(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("expected path %q to not exist", path)
 	}
 }

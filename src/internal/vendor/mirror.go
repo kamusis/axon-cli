@@ -73,7 +73,7 @@ func mirrorRsync(src, dest string) error {
 	srcSlash := strings.TrimRight(src, string(os.PathSeparator)) + string(os.PathSeparator)
 	destSlash := strings.TrimRight(dest, string(os.PathSeparator)) + string(os.PathSeparator)
 
-	cmd := exec.Command("rsync", "-a", "--delete", srcSlash, destSlash)
+	cmd := exec.Command("rsync", "-a", "--delete", "--exclude=.git", srcSlash, destSlash)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -109,6 +109,9 @@ func copyDirContents(src, dest string) error {
 		target := filepath.Join(dest, rel)
 
 		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
 			info, err := d.Info()
 			if err != nil {
 				return err
