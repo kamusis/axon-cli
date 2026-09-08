@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
@@ -211,6 +213,9 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 	//    multiple entries share the same repo cache — after the first entry is
 	//    processed HEAD advances to origin/<ref>, making every subsequent
 	//    entry appear current even if its subdir was never mirrored.
+	//
+	//    Also require the Hub destination to still exist.  If the user deleted
+	//    the mirrored folder locally, SHA equality alone must not skip re-mirror.
 	remoteRef := "origin/" + ref
 	remoteSHA, err := vendor.SubdirLatestSHA(cachePath, remoteRef, v.Subdir)
 	if err != nil {
@@ -223,12 +228,33 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 		printWarn(v.Name, fmt.Sprintf("could not read stored SHA: %v", err))
 	}
 
-	if storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA {
+	cleanDest, err := vendor.ValidateDest(v.Dest)
+	if err != nil {
+		return false, err
+	}
+	destAbs := filepath.Join(hubRoot, cleanDest)
+	destMissing := false
+	if info, statErr := os.Stat(destAbs); statErr != nil {
+		if !os.IsNotExist(statErr) {
+			return false, fmt.Errorf("cannot stat destination %q: %w", destAbs, statErr)
+		}
+		destMissing = true
+	} else if !info.IsDir() {
+		destMissing = true
+	}
+
+	if storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA && !destMissing {
 		printOK(v.Name, fmt.Sprintf(
 			"already up to date (%.8s) — no changes in %s, skipping mirror",
 			remoteSHA, v.Subdir,
 		))
 		return false, nil
+	}
+	if destMissing && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA {
+		printInfo(v.Name, fmt.Sprintf(
+			"destination %s missing — re-mirroring despite unchanged SHA (%.8s)",
+			v.Dest, remoteSHA,
+		))
 	}
 
 	// 6. Ensure this subdir is included in the sparse-checkout cone.
@@ -253,12 +279,7 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 		return false, err
 	}
 
-	// 9. Validate and mirror into Hub.
-	cleanDest, err := vendor.ValidateDest(v.Dest)
-	if err != nil {
-		return false, err
-	}
-
+	// 9. Mirror into Hub (dest already validated in step 5).
 	printInfo(v.Name, fmt.Sprintf("mirroring %s → %s…", v.Subdir, v.Dest))
 	if err := vendor.Mirror(hubRoot, cleanDest, src); err != nil {
 		return false, err

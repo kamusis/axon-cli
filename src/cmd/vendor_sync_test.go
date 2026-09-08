@@ -96,7 +96,7 @@ func makeLocalVendorRepo(t *testing.T, subdir, filename, content string) string 
 	repoDir := t.TempDir()
 
 	for _, args := range [][]string{
-		{"-C", repoDir, "init"},
+		{"-C", repoDir, "init", "-b", "master"},
 		{"-C", repoDir, "config", "user.email", "test@axon.local"},
 		{"-C", repoDir, "config", "user.name", "Axon Test"},
 		{"-C", repoDir, "config", "core.autocrlf", "false"},
@@ -184,7 +184,7 @@ func TestSyncVendorEntry_SameRepoTwoSubdirs(t *testing.T) {
 	// Build a single local git repo with two independent subdirs.
 	repoDir := t.TempDir()
 	for _, args := range [][]string{
-		{"-C", repoDir, "init"},
+		{"-C", repoDir, "init", "-b", "master"},
 		{"-C", repoDir, "config", "user.email", "test@axon.local"},
 		{"-C", repoDir, "config", "user.name", "Axon Test"},
 	} {
@@ -330,5 +330,62 @@ func TestSyncVendorEntry_IdempotentOnRerun(t *testing.T) {
 	dest := filepath.Join(hubRoot, "skills", "bar", "README.md")
 	if _, err := os.Stat(dest); err != nil {
 		t.Fatalf("file missing after second run: %v", err)
+	}
+}
+
+// TestSyncVendorEntry_RemirrorsWhenDestDeleted ensures that deleting the Hub
+// destination after a successful sync forces a re-mirror even when the upstream
+// SHA is unchanged. Regression for the SHA-only skip that ignored missing dests.
+func TestSyncVendorEntry_RemirrorsWhenDestDeleted(t *testing.T) {
+	resetVendorCache(t)
+
+	srcRepo := makeLocalVendorRepo(t, "skills/eli5", "SKILL.md", "# ELI5\n")
+	hubRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(hubRoot, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := vendor.RsyncAvailable
+	vendor.RsyncAvailable = func() bool { return false }
+	defer func() { vendor.RsyncAvailable = orig }()
+
+	v := config.Vendor{
+		Name:   "eli5",
+		Repo:   srcRepo,
+		Subdir: "skills/eli5",
+		Dest:   "skills/eli5",
+		Ref:    "master",
+	}
+
+	mirrored, err := syncVendorEntry(hubRoot, v)
+	if err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if !mirrored {
+		t.Fatal("first sync should mirror content")
+	}
+
+	destDir := filepath.Join(hubRoot, "skills", "eli5")
+	if err := os.RemoveAll(destDir); err != nil {
+		t.Fatalf("remove dest: %v", err)
+	}
+	if _, err := os.Stat(destDir); !os.IsNotExist(err) {
+		t.Fatal("expected dest to be gone after RemoveAll")
+	}
+
+	mirrored, err = syncVendorEntry(hubRoot, v)
+	if err != nil {
+		t.Fatalf("second sync after dest delete: %v", err)
+	}
+	if !mirrored {
+		t.Fatal("second sync should re-mirror when Hub destination is missing")
+	}
+
+	data, err := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("expected SKILL.md restored: %v", err)
+	}
+	if string(data) != "# ELI5\n" {
+		t.Errorf("unexpected content after re-mirror: %q", string(data))
 	}
 }
