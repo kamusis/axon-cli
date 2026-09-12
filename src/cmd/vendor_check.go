@@ -95,9 +95,11 @@ func runVendorCheck(_ *cobra.Command, args []string) error {
 		destAbs := filepath.Join(cfg.RepoPath, cleanDest)
 
 		var localSHA string
+		hasProvenance := false
 		prov, provErr := vendor.ReadProvenance(destAbs)
-		if provErr == nil && prov != nil {
+		if provErr == nil && prov != nil && prov.Commit != "" {
 			localSHA = prov.Commit
+			hasProvenance = true
 		}
 		if localSHA == "" {
 			localSHA, _ = vendor.ReadVendorSHA(v.Name)
@@ -105,6 +107,8 @@ func runVendorCheck(_ *cobra.Command, args []string) error {
 
 		if localSHA == "" {
 			printWarn(v.Name, fmt.Sprintf("never synced (upstream is %.8s on %s)", remoteSHA, ref))
+		} else if !hasProvenance {
+			printWarn(v.Name, fmt.Sprintf("legacy cache %.8s — missing in-tree provenance (run 'axon vendor sync %s' to update)", localSHA, v.Name))
 		} else if remoteSHA != "" && localSHA == remoteSHA {
 			printOK(v.Name, fmt.Sprintf("up to date (%.8s on %s)", localSHA, ref))
 		} else if remoteSHA != "" {

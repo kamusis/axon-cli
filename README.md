@@ -205,7 +205,7 @@ To prevent cross-platform CRLF/LF churn, `axon init` also writes a default `.git
 
 `axon status` provides a high-signal overview of your environment:
 1. **Symlink Health (by Asset)**: Groups targets by their Hub asset category (`Skills`, `Rules`, `Workflows`, `Commands`, `Files`) with scannable multi-column listings for healthy links, actionable alerts for any misconfigured targets, and skipped uninstalled tools.
-2. **Hub Assets & Vendors**: Displays vendor dependency health, showing synced upstream commit SHAs and alerts for missing destinations or pending initial syncs.
+2. **Hub Assets & Vendors**: Displays vendor dependency health, showing synced upstream commit SHAs and alerts for missing destinations, missing in-tree provenance, or pending syncs.
 3. **Hub Git Status**: Shows local and remote branch tracking status (ahead/behind counts).
 
 Add `--fetch` to also fetch `origin` and show whether your local Hub branch is ahead/behind the remote default branch. If the remote is newer, run `axon sync` to pull updates.
@@ -542,8 +542,8 @@ axon vendor sync book-to-skill --force
 
 **Key behaviors:**
 - **Dirty Destination Guard**: If you made uncommitted local modifications inside a vendored directory in your Hub, `axon vendor sync` halts to prevent accidental data loss. Use `--force` to deliberately overwrite local changes.
-- **SHA-Based Skip**: If the upstream commit SHA matches the recorded in-tree `.axon-vendor.yaml`, Axon skips unnecessary re-mirroring.
-- **In-Tree Provenance**: Automatically writes `.axon-vendor.yaml` into the mirrored directory.
+- **SHA-Based Skip & Provenance Backfill**: If the upstream commit SHA matches the recorded in-tree `.axon-vendor.yaml` (or legacy cache), Axon skips unnecessary re-mirroring and automatically backfills `.axon-vendor.yaml` if missing.
+- **In-Tree Provenance**: Automatically writes `.axon-vendor.yaml` into the mirrored directory and retires legacy `~/.axon/cache/vendors/*.sha` cache files.
 - **Auto-Migration**: If you have legacy `vendors:` declared in `~/.axon/axon.yaml`, running `axon vendor sync` (or `axon vendor add`) automatically migrates them into `axon.vendors.yaml` in your Hub and removes the legacy section from `axon.yaml`.
 
 #### `axon vendor check`
@@ -582,7 +582,8 @@ card-skill     skills/card-skill     v1.2    pending             github.com/exam
 ```
 
 `STATUS` values:
-- `synced (<sha>)` — last-mirrored commit, with Hub destination present and valid.
+- `synced (<sha>)` — in-tree `.axon-vendor.yaml` present and valid.
+- `legacy (<sha>)` — destination present with legacy cache; run `axon vendor sync` to record in-tree provenance.
 - `pending` — this entry has never been synced.
 - `missing dest` — vendor entry configured, but destination folder is missing. Run `axon vendor sync <name>` to pull it down.
 

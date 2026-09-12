@@ -228,6 +228,7 @@ func ReadVendorSHA(name string) (string, error) {
 // WriteVendorSHA persists sha as the last-mirrored commit for the named vendor.
 // The file is written as <name>.sha directly under the cache root
 // (~/.axon/cache/vendors/<name>.sha), alongside the per-repo subdirectories.
+// Deprecated: new vendor syncs store provenance in-tree via .axon-vendor.yaml.
 func WriteVendorSHA(name, sha string) error {
 	root, err := CacheRoot()
 	if err != nil {
@@ -237,6 +238,21 @@ func WriteVendorSHA(name, sha string) error {
 		return fmt.Errorf("creating cache root: %w", err)
 	}
 	return os.WriteFile(filepath.Join(root, name+".sha"), []byte(sha+"\n"), 0o644)
+}
+
+// RemoveVendorSHA removes the legacy cache file <name>.sha from the cache root
+// (~/.axon/cache/vendors/<name>.sha) if it exists. Returns nil if the file
+// does not exist.
+func RemoveVendorSHA(name string) error {
+	root, err := CacheRoot()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(root, name+".sha"))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing legacy vendor SHA for %q: %w", name, err)
+	}
+	return nil
 }
 
 // AddSparseCheckoutDir adds subdir to the existing sparse-checkout cone for the

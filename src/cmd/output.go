@@ -120,3 +120,8 @@ func printInfo(name, msg string) {
 func printListItem(icon, name string) {
 	fmt.Printf("  %s  %s\n", icon, name)
 }
+
+// printTip prints an actionable guidance line with a bulb icon.
+func printTip(msg string) {
+	fmt.Printf("\n💡 %s\n", msg)
+}

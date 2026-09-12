@@ -160,7 +160,7 @@ func TestSyncVendorEntry_MirrorsContent(t *testing.T) {
 		Ref:    "master",
 	}
 
-	if _, err := syncVendorEntry(hubRoot, v, false); err != nil {
+	if _, _, err := syncVendorEntry(hubRoot, v, false); err != nil {
 		t.Fatalf("syncVendorEntry: %v", err)
 	}
 
@@ -235,10 +235,10 @@ func TestSyncVendorEntry_SameRepoTwoSubdirs(t *testing.T) {
 	vAlpha := config.Vendor{Name: "alpha", Repo: repoDir, Subdir: "skills/alpha", Dest: "skills/alpha", Ref: "master"}
 	vBeta := config.Vendor{Name: "beta", Repo: repoDir, Subdir: "skills/beta", Dest: "skills/beta", Ref: "master"}
 
-	if _, err := syncVendorEntry(hubRoot, vAlpha, false); err != nil {
+	if _, _, err := syncVendorEntry(hubRoot, vAlpha, false); err != nil {
 		t.Fatalf("syncVendorEntry(alpha): %v", err)
 	}
-	if _, err := syncVendorEntry(hubRoot, vBeta, false); err != nil {
+	if _, _, err := syncVendorEntry(hubRoot, vBeta, false); err != nil {
 		t.Fatalf("syncVendorEntry(beta): %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestSyncVendorEntry_SubdirDeletedUpstream(t *testing.T) {
 		Ref:    "master",
 	}
 
-	_, err := syncVendorEntry(hubRoot, v, false)
+	_, _, err := syncVendorEntry(hubRoot, v, false)
 	if err == nil {
 		t.Fatal("expected error when subdir is missing upstream")
 	}
@@ -332,7 +332,7 @@ func TestSyncVendorEntry_IdempotentOnRerun(t *testing.T) {
 
 	// Run twice — should succeed both times.
 	for i := 0; i < 2; i++ {
-		if _, err := syncVendorEntry(hubRoot, v, false); err != nil {
+		if _, _, err := syncVendorEntry(hubRoot, v, false); err != nil {
 			t.Fatalf("run %d: syncVendorEntry: %v", i+1, err)
 		}
 	}
@@ -367,7 +367,7 @@ func TestSyncVendorEntry_RemirrorsWhenDestDeleted(t *testing.T) {
 		Ref:    "master",
 	}
 
-	mirrored, err := syncVendorEntry(hubRoot, v, false)
+	mirrored, _, err := syncVendorEntry(hubRoot, v, false)
 	if err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestSyncVendorEntry_RemirrorsWhenDestDeleted(t *testing.T) {
 		t.Fatal("expected dest to be gone after RemoveAll")
 	}
 
-	mirrored, err = syncVendorEntry(hubRoot, v, false)
+	mirrored, _, err = syncVendorEntry(hubRoot, v, false)
 	if err != nil {
 		t.Fatalf("second sync after dest delete: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestSyncVendorEntry_DirtyGuard(t *testing.T) {
 	}
 
 	// 1. First sync cleanly
-	if _, err := syncVendorEntry(hubRoot, v, false); err != nil {
+	if _, _, err := syncVendorEntry(hubRoot, v, false); err != nil {
 		t.Fatalf("first sync failed: %v", err)
 	}
 
@@ -450,7 +450,7 @@ func TestSyncVendorEntry_DirtyGuard(t *testing.T) {
 	}
 
 	// 3. sync without force should abort with dirty error
-	_, err := syncVendorEntry(hubRoot, v, false)
+	_, _, err := syncVendorEntry(hubRoot, v, false)
 	if err == nil {
 		t.Fatal("expected error due to uncommitted local changes")
 	}
@@ -465,7 +465,7 @@ func TestSyncVendorEntry_DirtyGuard(t *testing.T) {
 	}
 
 	// 4. sync with force=true should succeed and overwrite
-	_, err = syncVendorEntry(hubRoot, v, true)
+	_, _, err = syncVendorEntry(hubRoot, v, true)
 	if err != nil {
 		t.Fatalf("sync with force failed: %v", err)
 	}
@@ -525,6 +525,128 @@ func TestRunVendorSync_AutoMigratesLegacyVendors(t *testing.T) {
 	}
 	if len(reloaded.Vendors) != 0 {
 		t.Errorf("reloaded.Vendors = %+v, want empty", reloaded.Vendors)
+	}
+}
+
+func TestSyncVendorEntry_BackfillsProvenanceWhenUpToDate(t *testing.T) {
+	resetVendorCache(t)
+
+	srcRepo := makeLocalVendorRepo(t, "skills/backfill", "SKILL.md", "# Backfill\n")
+	hubRoot := t.TempDir()
+	destDir := filepath.Join(hubRoot, "skills", "backfill")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destDir, "SKILL.md"), []byte("# Backfill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Determine upstream latest commit
+	cachePath, err := vendor.CachePath(srcRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vendor.Clone(srcRepo, cachePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := vendor.Fetch(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	remoteSHA, err := vendor.SubdirLatestSHA(cachePath, "origin/master", "skills/backfill")
+	if err != nil || remoteSHA == "" {
+		t.Fatalf("could not get remote SHA: %v", err)
+	}
+
+	// Simulate legacy sync: .sha cache exists, but .axon-vendor.yaml does not
+	v := config.Vendor{
+		Name:   "backfill-skill",
+		Repo:   srcRepo,
+		Subdir: "skills/backfill",
+		Dest:   "skills/backfill",
+		Ref:    "master",
+	}
+	if err := vendor.WriteVendorSHA(v.Name, remoteSHA); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := vendor.RsyncAvailable
+	vendor.RsyncAvailable = func() bool { return false }
+	defer func() { vendor.RsyncAvailable = orig }()
+
+	mirrored, backfilled, err := syncVendorEntry(hubRoot, v, false)
+	if err != nil {
+		t.Fatalf("syncVendorEntry failed: %v", err)
+	}
+	if mirrored {
+		t.Errorf("expected mirrored=false when already up to date")
+	}
+	if !backfilled {
+		t.Errorf("expected backfilled=true when .axon-vendor.yaml was missing")
+	}
+
+	// Verify .axon-vendor.yaml was created
+	prov, err := vendor.ReadProvenance(destDir)
+	if err != nil {
+		t.Fatalf("ReadProvenance failed: %v", err)
+	}
+	if prov == nil || prov.Commit != remoteSHA {
+		t.Errorf("prov = %+v, want commit %s", prov, remoteSHA)
+	}
+
+	// Verify legacy cache .sha was deleted
+	cachedSHA, err := vendor.ReadVendorSHA(v.Name)
+	if err != nil {
+		t.Fatalf("ReadVendorSHA error: %v", err)
+	}
+	if cachedSHA != "" {
+		t.Errorf("expected legacy cache to be deleted, got %q", cachedSHA)
+	}
+}
+
+func TestSyncVendorEntry_RemovesLegacySHAUponMirror(t *testing.T) {
+	resetVendorCache(t)
+
+	srcRepo := makeLocalVendorRepo(t, "skills/clean", "SKILL.md", "# Clean\n")
+	hubRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hubRoot, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	v := config.Vendor{
+		Name:   "clean-skill",
+		Repo:   srcRepo,
+		Subdir: "skills/clean",
+		Dest:   "skills/clean",
+		Ref:    "master",
+	}
+
+	// Pre-populate old legacy .sha cache
+	if err := vendor.WriteVendorSHA(v.Name, "old-obsolete-sha"); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := vendor.RsyncAvailable
+	vendor.RsyncAvailable = func() bool { return false }
+	defer func() { vendor.RsyncAvailable = orig }()
+
+	mirrored, backfilled, err := syncVendorEntry(hubRoot, v, false)
+	if err != nil {
+		t.Fatalf("syncVendorEntry: %v", err)
+	}
+	if !mirrored {
+		t.Errorf("expected mirrored=true on fresh mirror")
+	}
+	if backfilled {
+		t.Errorf("expected backfilled=false on fresh mirror")
+	}
+
+	// Verify legacy cache was removed
+	cachedSHA, err := vendor.ReadVendorSHA(v.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cachedSHA != "" {
+		t.Errorf("expected legacy cache to be removed after mirror, got %q", cachedSHA)
 	}
 }
 

@@ -106,6 +106,6 @@ func runVendorAdd(_ *cobra.Command, args []string) error {
 	defer release()
 
 	printSection("Vendor Sync")
-	_, syncErr := syncVendorEntry(cfg.RepoPath, newEntry, vendorSyncForce)
+	_, _, syncErr := syncVendorEntry(cfg.RepoPath, newEntry, vendorSyncForce)
 	return syncErr
 }

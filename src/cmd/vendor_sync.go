@@ -71,12 +71,14 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)
 	}
 
+	var legacyMigrated int
 	// Auto-migrate legacy vendors if present in local axon.yaml
 	if len(cfg.Vendors) > 0 {
 		migratedCount, migErr := vendor.MigrateLegacyVendors(cfg.RepoPath, cfg)
 		if migErr != nil {
 			printWarn("", fmt.Sprintf("auto-migration of legacy vendors failed: %v", migErr))
 		} else if migratedCount > 0 {
+			legacyMigrated = migratedCount
 			printOK("", fmt.Sprintf("migrated %d legacy vendor(s) from ~/.axon/axon.yaml into %s — this will be synchronized to your remote Hub on the next 'axon sync'", migratedCount, vendor.ManifestFileName))
 		}
 	}
@@ -125,11 +127,12 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 	}
 
 	var mirrored, skipped, failed int
+	var backfilled int
 	var syncedNames, skippedNames []string
 	var failedEntries []failedEntry
 
 	for _, v := range vendors {
-		ok, err := syncVendorEntry(cfg.RepoPath, v, vendorSyncForce)
+		ok, provBackfilled, err := syncVendorEntry(cfg.RepoPath, v, vendorSyncForce)
 		if err != nil {
 			printErr(v.Name, "failed")
 			failed++
@@ -142,6 +145,9 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 		} else {
 			skipped++
 			skippedNames = append(skippedNames, v.Name)
+			if provBackfilled {
+				backfilled++
+			}
 		}
 	}
 
@@ -172,6 +178,10 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 
 	if failed > 0 {
 		return fmt.Errorf("vendor sync failed (%d mirrored, %d skipped, %d error)", mirrored, skipped, failed)
+	}
+
+	if legacyMigrated > 0 || mirrored > 0 || backfilled > 0 {
+		printTip("Vendor manifests and provenance updated. Run 'axon sync' to commit and push to remote Hub.")
 	}
 	return nil
 }
@@ -222,9 +232,11 @@ func selectVendorByName(vendors []config.Vendor, name string) ([]config.Vendor, 
 }
 
 // syncVendorEntry runs the full sync flow for one vendor entry.
-// Returns (true, nil) when content was mirrored, (false, nil) when skipped
-// because the destination is already up to date, or (false, err) on failure.
-func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) {
+// Returns (mirrored=true, backfilled=false, nil) when content was mirrored,
+// (mirrored=false, backfilled=true, nil) when .axon-vendor.yaml was backfilled,
+// (mirrored=false, backfilled=false, nil) when destination is already up to date,
+// or (false, false, err) on failure.
+func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, bool, error) {
 	ref := v.Ref
 	if ref == "" {
 		ref = "main"
@@ -234,7 +246,7 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 
 	cleanDest, err := vendor.ValidateDest(v.Dest)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	destAbs := filepath.Join(hubRoot, cleanDest)
 
@@ -242,17 +254,17 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 	if !force {
 		dirty, dirtyErr := vendor.CheckDestDirty(hubRoot, cleanDest)
 		if dirtyErr != nil {
-			return false, fmt.Errorf("dirty check failed: %w", dirtyErr)
+			return false, false, fmt.Errorf("dirty check failed: %w", dirtyErr)
 		}
 		if dirty {
-			return false, fmt.Errorf("destination %q has uncommitted changes in the Hub — commit or stash them first, or run with --force", cleanDest)
+			return false, false, fmt.Errorf("destination %q has uncommitted changes in the Hub — commit or stash them first, or run with --force", cleanDest)
 		}
 	}
 
 	// 1. Resolve cache path.
 	cachePath, err := vendor.CachePath(v.Repo)
 	if err != nil {
-		return false, fmt.Errorf("cannot resolve cache path: %w", err)
+		return false, false, fmt.Errorf("cannot resolve cache path: %w", err)
 	}
 
 	// 2. Clone if not already cached.
@@ -260,18 +272,18 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 	if !alreadyCached {
 		printInfo(v.Name, "cloning repository into cache…")
 		if err := vendor.Clone(v.Repo, cachePath); err != nil {
-			return false, err
+			return false, false, err
 		}
 		// 3. Configure sparse-checkout after fresh clone.
 		if err := vendor.EnableSparseCheckout(cachePath, v.Subdir); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
 
 	// 4. Fetch latest refs.
 	printInfo(v.Name, "fetching remote refs…")
 	if err := vendor.Fetch(cachePath); err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	// 5. Up-to-date check: check stored commit SHA from in-tree .axon-vendor.yaml
@@ -285,7 +297,7 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 	destMissing := false
 	if info, statErr := os.Stat(destAbs); statErr != nil {
 		if !os.IsNotExist(statErr) {
-			return false, fmt.Errorf("cannot stat destination %q: %w", destAbs, statErr)
+			return false, false, fmt.Errorf("cannot stat destination %q: %w", destAbs, statErr)
 		}
 		destMissing = true
 	} else if !info.IsDir() {
@@ -293,9 +305,11 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 	}
 
 	var storedSHA string
+	var existingProv *vendor.Provenance
 	if !destMissing {
 		prov, provErr := vendor.ReadProvenance(destAbs)
 		if provErr == nil && prov != nil {
+			existingProv = prov
 			storedSHA = prov.Commit
 		}
 	}
@@ -304,11 +318,33 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 	}
 
 	if !force && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA && !destMissing {
+		if existingProv == nil {
+			prov := vendor.Provenance{
+				Vendor:   v.Name,
+				Repo:     v.Repo,
+				Subdir:   v.Subdir,
+				Ref:      ref,
+				Commit:   remoteSHA,
+				SyncedAt: time.Now().UTC(),
+			}
+			if err := vendor.WriteProvenance(destAbs, prov); err != nil {
+				printWarn(v.Name, fmt.Sprintf("could not write provenance: %v", err))
+			} else {
+				_ = vendor.RemoveVendorSHA(v.Name)
+				printOK(v.Name, fmt.Sprintf(
+					"already up to date (%.8s) — recorded provenance (.axon-vendor.yaml)",
+					remoteSHA,
+				))
+				return false, true, nil
+			}
+		} else {
+			_ = vendor.RemoveVendorSHA(v.Name)
+		}
 		printOK(v.Name, fmt.Sprintf(
 			"already up to date (%.8s) — no changes in %s, skipping mirror",
 			remoteSHA, v.Subdir,
 		))
-		return false, nil
+		return false, false, nil
 	}
 	if force && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA && !destMissing {
 		printInfo(v.Name, fmt.Sprintf(
@@ -326,29 +362,29 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 	// 6. Ensure this subdir is included in the sparse-checkout cone.
 	if alreadyCached {
 		if err := vendor.AddSparseCheckoutDir(cachePath, v.Subdir); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
 
 	// 7. Checkout requested ref.
 	printInfo(v.Name, fmt.Sprintf("checking out %s…", ref))
 	if err := vendor.Checkout(cachePath, ref); err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	// 8. Verify subdir exists in the checked-out tree.
 	src, err := vendor.SourcePath(cachePath, v.Subdir)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	// 9. Mirror into Hub.
 	printInfo(v.Name, fmt.Sprintf("mirroring %s → %s…", v.Subdir, v.Dest))
 	if err := vendor.Mirror(hubRoot, cleanDest, src); err != nil {
-		return false, err
+		return false, false, err
 	}
 
-	// 10. Write provenance metadata and cache SHA.
+	// 10. Write provenance metadata and clean up legacy cache SHA.
 	if remoteSHA != "" {
 		prov := vendor.Provenance{
 			Vendor:   v.Name,
@@ -360,10 +396,11 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) 
 		}
 		if err := vendor.WriteProvenance(destAbs, prov); err != nil {
 			printWarn(v.Name, fmt.Sprintf("could not write provenance: %v", err))
+		} else {
+			_ = vendor.RemoveVendorSHA(v.Name)
 		}
-		_ = vendor.WriteVendorSHA(v.Name, remoteSHA)
 	}
 
 	printOK(v.Name, fmt.Sprintf("successfully mirrored %s@%s → %s", v.Subdir, ref, v.Dest))
-	return true, nil
+	return true, false, nil
 }
