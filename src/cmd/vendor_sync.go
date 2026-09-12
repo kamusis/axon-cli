@@ -6,30 +6,35 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kamusis/axon-cli/internal/config"
 	"github.com/kamusis/axon-cli/internal/vendor"
 	"github.com/spf13/cobra"
 )
 
+var vendorSyncForce bool
+
 var vendorSyncCmd = &cobra.Command{
 	Use:   "sync [name]",
 	Short: "Sync configured vendor entries into the Hub",
-	Long: `vendor sync fetches each external repo/subdir listed in the 'vendors'
-block of ~/.axon/axon.yaml and mirrors it as plain files into the Hub.
+	Long: `vendor sync fetches external repo/subdir sources defined in the Hub's
+axon.vendors.yaml (or legacy ~/.axon/axon.yaml) and mirrors them as plain files
+into the Hub.
 
 With no argument, every configured vendor entry is synced. Given a name,
-only the matching vendor entry (its 'name' field in axon.yaml) is synced.
+only the matching vendor entry is synced.
 
-Vendor content overwrites the Hub destination on every run (force-overwrite).
-No nested .git directories are written inside the Hub.`,
+Vendor content writes in-tree provenance (.axon-vendor.yaml) for tracking.
+If the destination folder has uncommitted changes in the Hub Git repository,
+sync will abort to protect local edits, unless --force is specified.`,
 	Args:              cobra.MaximumNArgs(1),
 	RunE:              runVendorSync,
 	ValidArgsFunction: completeVendorNames,
 }
 
 // completeVendorNames provides shell <TAB> completion for `axon vendor sync
-// [name]`, suggesting configured vendor names from ~/.axon/axon.yaml.
+// [name]`, suggesting configured vendor names.
 func completeVendorNames(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -38,8 +43,12 @@ func completeVendorNames(_ *cobra.Command, args []string, toComplete string) ([]
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
+	vendors, _, err := vendor.LoadEffectiveVendors(cfg.RepoPath, cfg)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 	var matches []string
-	for _, name := range vendorNames(cfg.Vendors) {
+	for _, name := range vendorNames(vendors) {
 		if strings.HasPrefix(name, toComplete) {
 			matches = append(matches, name)
 		}
@@ -48,6 +57,7 @@ func completeVendorNames(_ *cobra.Command, args []string, toComplete string) ([]
 }
 
 func init() {
+	vendorSyncCmd.Flags().BoolVarP(&vendorSyncForce, "force", "f", false, "Force sync and overwrite destination even if local uncommitted changes exist")
 	vendorCmd.AddCommand(vendorSyncCmd)
 }
 
@@ -61,14 +71,28 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)
 	}
 
-	if len(cfg.Vendors) == 0 {
-		return fmt.Errorf("no vendors configured — add a 'vendors' block to ~/.axon/axon.yaml")
+	// Auto-migrate legacy vendors if present in local axon.yaml
+	if len(cfg.Vendors) > 0 {
+		migratedCount, migErr := vendor.MigrateLegacyVendors(cfg.RepoPath, cfg)
+		if migErr != nil {
+			printWarn("", fmt.Sprintf("auto-migration of legacy vendors failed: %v", migErr))
+		} else if migratedCount > 0 {
+			printOK("", fmt.Sprintf("migrated %d legacy vendor(s) from ~/.axon/axon.yaml into %s — this will be synchronized to your remote Hub on the next 'axon sync'", migratedCount, vendor.ManifestFileName))
+		}
 	}
 
-	vendors := cfg.Vendors
+	vendors, _, err := vendor.LoadEffectiveVendors(cfg.RepoPath, cfg)
+	if err != nil {
+		return fmt.Errorf("cannot load vendors: %w", err)
+	}
+
+	if len(vendors) == 0 {
+		return fmt.Errorf("no vendors configured — add a vendor with 'axon vendor add' or configure %s", vendor.ManifestPath(cfg.RepoPath))
+	}
+
 	if len(args) == 1 {
 		name := args[0]
-		vendors, err = selectVendorByName(cfg.Vendors, name)
+		vendors, err = selectVendorByName(vendors, name)
 		if err != nil {
 			return err
 		}
@@ -80,7 +104,7 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 	}
 
 	// Validate all entries up front before touching the filesystem.
-	if err := validateVendors(cfg.Vendors); err != nil {
+	if err := validateVendors(vendors); err != nil {
 		return err
 	}
 
@@ -105,7 +129,7 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 	var failedEntries []failedEntry
 
 	for _, v := range vendors {
-		ok, err := syncVendorEntry(cfg.RepoPath, v)
+		ok, err := syncVendorEntry(cfg.RepoPath, v, vendorSyncForce)
 		if err != nil {
 			printErr(v.Name, "failed")
 			failed++
@@ -194,19 +218,36 @@ func selectVendorByName(vendors []config.Vendor, name string) ([]config.Vendor, 
 			return []config.Vendor{v}, nil
 		}
 	}
-	return nil, fmt.Errorf("no vendor named %q in ~/.axon/axon.yaml — configured vendors: %s", name, strings.Join(vendorNames(vendors), ", "))
+	return nil, fmt.Errorf("no vendor named %q configured — available vendors: %s", name, strings.Join(vendorNames(vendors), ", "))
 }
 
 // syncVendorEntry runs the full sync flow for one vendor entry.
 // Returns (true, nil) when content was mirrored, (false, nil) when skipped
 // because the destination is already up to date, or (false, err) on failure.
-func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
+func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, error) {
 	ref := v.Ref
 	if ref == "" {
 		ref = "main"
 	}
 
 	printInfo(v.Name, fmt.Sprintf("repo=%s subdir=%s ref=%s", v.Repo, v.Subdir, ref))
+
+	cleanDest, err := vendor.ValidateDest(v.Dest)
+	if err != nil {
+		return false, err
+	}
+	destAbs := filepath.Join(hubRoot, cleanDest)
+
+	// Dirty check: protect local modifications from being clobbered by rsync.
+	if !force {
+		dirty, dirtyErr := vendor.CheckDestDirty(hubRoot, cleanDest)
+		if dirtyErr != nil {
+			return false, fmt.Errorf("dirty check failed: %w", dirtyErr)
+		}
+		if dirty {
+			return false, fmt.Errorf("destination %q has uncommitted changes in the Hub — commit or stash them first, or run with --force", cleanDest)
+		}
+	}
 
 	// 1. Resolve cache path.
 	cachePath, err := vendor.CachePath(v.Repo)
@@ -233,32 +274,14 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 		return false, err
 	}
 
-	// 5. Up-to-date check: compare the stored last-mirrored SHA against the
-	//    current remote SHA for this subdir.  Using a per-entry stored SHA
-	//    (rather than HEAD) avoids false "already up to date" results when
-	//    multiple entries share the same repo cache — after the first entry is
-	//    processed HEAD advances to origin/<ref>, making every subsequent
-	//    entry appear current even if its subdir was never mirrored.
-	//
-	//    Also require the Hub destination to still exist.  If the user deleted
-	//    the mirrored folder locally, SHA equality alone must not skip re-mirror.
+	// 5. Up-to-date check: check stored commit SHA from in-tree .axon-vendor.yaml
+	// (or fallback to ~/.axon/cache/vendors/<name>.sha).
 	remoteRef := "origin/" + ref
 	remoteSHA, err := vendor.SubdirLatestSHA(cachePath, remoteRef, v.Subdir)
 	if err != nil {
-		// Log a warning if we can't get remote SHA, but keep going.
 		printWarn(v.Name, fmt.Sprintf("could not determine remote SHA: %v", err))
 	}
-	storedSHA, err := vendor.ReadVendorSHA(v.Name)
-	if err != nil {
-		// Log a warning if we can't read stored SHA, but keep going.
-		printWarn(v.Name, fmt.Sprintf("could not read stored SHA: %v", err))
-	}
 
-	cleanDest, err := vendor.ValidateDest(v.Dest)
-	if err != nil {
-		return false, err
-	}
-	destAbs := filepath.Join(hubRoot, cleanDest)
 	destMissing := false
 	if info, statErr := os.Stat(destAbs); statErr != nil {
 		if !os.IsNotExist(statErr) {
@@ -269,12 +292,29 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 		destMissing = true
 	}
 
-	if storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA && !destMissing {
+	var storedSHA string
+	if !destMissing {
+		prov, provErr := vendor.ReadProvenance(destAbs)
+		if provErr == nil && prov != nil {
+			storedSHA = prov.Commit
+		}
+	}
+	if storedSHA == "" {
+		storedSHA, _ = vendor.ReadVendorSHA(v.Name)
+	}
+
+	if !force && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA && !destMissing {
 		printOK(v.Name, fmt.Sprintf(
 			"already up to date (%.8s) — no changes in %s, skipping mirror",
 			remoteSHA, v.Subdir,
 		))
 		return false, nil
+	}
+	if force && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA && !destMissing {
+		printInfo(v.Name, fmt.Sprintf(
+			"force sync specified — re-mirroring despite unchanged SHA (%.8s)",
+			remoteSHA,
+		))
 	}
 	if destMissing && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA {
 		printInfo(v.Name, fmt.Sprintf(
@@ -284,9 +324,6 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 	}
 
 	// 6. Ensure this subdir is included in the sparse-checkout cone.
-	//    For fresh clones this was done in step 3; for cached repos we add the
-	//    subdir here so that a second entry sharing the same repo cache gets
-	//    its files checked out too (git sparse-checkout add is idempotent).
 	if alreadyCached {
 		if err := vendor.AddSparseCheckoutDir(cachePath, v.Subdir); err != nil {
 			return false, err
@@ -305,15 +342,25 @@ func syncVendorEntry(hubRoot string, v config.Vendor) (bool, error) {
 		return false, err
 	}
 
-	// 9. Mirror into Hub (dest already validated in step 5).
+	// 9. Mirror into Hub.
 	printInfo(v.Name, fmt.Sprintf("mirroring %s → %s…", v.Subdir, v.Dest))
 	if err := vendor.Mirror(hubRoot, cleanDest, src); err != nil {
 		return false, err
 	}
 
-	// 10. Record the mirrored SHA so future runs can skip unchanged entries.
-	//     Errors here are non-fatal — worst case the next run re-mirrors.
+	// 10. Write provenance metadata and cache SHA.
 	if remoteSHA != "" {
+		prov := vendor.Provenance{
+			Vendor:   v.Name,
+			Repo:     v.Repo,
+			Subdir:   v.Subdir,
+			Ref:      ref,
+			Commit:   remoteSHA,
+			SyncedAt: time.Now().UTC(),
+		}
+		if err := vendor.WriteProvenance(destAbs, prov); err != nil {
+			printWarn(v.Name, fmt.Sprintf("could not write provenance: %v", err))
+		}
 		_ = vendor.WriteVendorSHA(v.Name, remoteSHA)
 	}
 

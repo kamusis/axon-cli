@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
+	"github.com/kamusis/axon-cli/internal/vendor"
 	"github.com/spf13/cobra"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -33,10 +34,11 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 }
 
-// itemInfo holds the name of an item and whether it is a directory.
+// itemInfo holds the name of an item and whether it is a directory or vendor.
 type itemInfo struct {
-	Name  string
-	IsDir bool
+	Name     string
+	IsDir    bool
+	IsVendor bool
 }
 
 // categoryItems holds a category label and its discovered items.
@@ -81,9 +83,16 @@ func listItems(cfg *config.Config) []categoryItems {
 				if strings.HasPrefix(name, ".") {
 					continue // skip hidden entries
 				}
+				isVendor := false
+				if e.IsDir() {
+					if prov, _ := vendor.ReadProvenance(filepath.Join(sourceDir, name)); prov != nil {
+						isVendor = true
+					}
+				}
 				items = append(items, itemInfo{
-					Name:  name,
-					IsDir: e.IsDir(),
+					Name:     name,
+					IsDir:    e.IsDir(),
+					IsVendor: isVendor,
 				})
 			}
 		}
@@ -119,7 +128,11 @@ func runList(_ *cobra.Command, _ []string) error {
 		} else {
 			for _, item := range cat.Items {
 				if item.IsDir {
-					printDir(item.Name)
+					if item.IsVendor {
+						printDir(item.Name + " [vendor]")
+					} else {
+						printDir(item.Name)
+					}
 				} else {
 					printItem(item.Name)
 				}

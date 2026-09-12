@@ -14,8 +14,9 @@ import (
 var vendorListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List configured vendor entries and their sync health",
-	Long: `vendor list prints every entry in the 'vendors' block of ~/.axon/axon.yaml
-alongside its local sync status, without touching the network.
+	Long: `vendor list prints every entry declared in the Hub's axon.vendors.yaml
+(or legacy ~/.axon/axon.yaml) alongside its local sync status, without touching
+the network.
 
 STATUS is one of:
   synced (<sha>)  the last-mirrored commit, and the Hub destination exists
@@ -37,18 +38,27 @@ func runVendorList(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)
 	}
 
-	if len(cfg.Vendors) == 0 {
-		printWarn("", "no vendors configured — add a 'vendors' block to ~/.axon/axon.yaml")
+	vendors, isHub, err := vendor.LoadEffectiveVendors(cfg.RepoPath, cfg)
+	if err != nil {
+		return fmt.Errorf("cannot load vendors: %w", err)
+	}
+
+	if len(vendors) == 0 {
+		printWarn("", fmt.Sprintf("no vendors configured — add vendors with 'axon vendor add' or configure %s", vendor.ManifestPath(cfg.RepoPath)))
 		return nil
 	}
 
-	if err := validateVendors(cfg.Vendors); err != nil {
+	if !isHub {
+		printWarn("", "vendors are defined in legacy ~/.axon/axon.yaml — they will be automatically migrated into the Hub on your next 'axon vendor sync' or 'axon vendor add'")
+	}
+
+	if err := validateVendors(vendors); err != nil {
 		return err
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tDEST\tREF\tSTATUS\tREPO")
-	for _, v := range cfg.Vendors {
+	for _, v := range vendors {
 		ref := v.Ref
 		if ref == "" {
 			ref = "main"
@@ -69,26 +79,33 @@ func runVendorList(_ *cobra.Command, _ []string) error {
 // vendorSyncStatus reports the local sync health of a single vendor entry
 // without any network access: "synced (<sha>)", "pending", or "missing dest".
 func vendorSyncStatus(hubRoot string, v config.Vendor) (string, error) {
-	storedSHA, err := vendor.ReadVendorSHA(v.Name)
-	if err != nil {
-		return "", fmt.Errorf("could not read stored SHA: %w", err)
-	}
-	if storedSHA == "" {
-		return "pending", nil
-	}
-
 	cleanDest, err := vendor.ValidateDest(v.Dest)
 	if err != nil {
 		return "", err
 	}
-	info, statErr := os.Stat(filepath.Join(hubRoot, cleanDest))
-	if statErr != nil {
-		if os.IsNotExist(statErr) {
-			return "missing dest", nil
+	destAbs := filepath.Join(hubRoot, cleanDest)
+	info, statErr := os.Stat(destAbs)
+	destExists := statErr == nil && info.IsDir()
+
+	// 1. Check in-tree provenance metadata (.axon-vendor.yaml) if dest exists
+	if destExists {
+		prov, err := vendor.ReadProvenance(destAbs)
+		if err == nil && prov != nil && prov.Commit != "" {
+			return fmt.Sprintf("synced (%.8s)", prov.Commit), nil
 		}
-		return "", fmt.Errorf("cannot stat destination: %w", statErr)
 	}
-	if !info.IsDir() {
+
+	// 2. Fallback to local cache .sha
+	storedSHA, err := vendor.ReadVendorSHA(v.Name)
+	if err != nil {
+		return "", fmt.Errorf("could not read stored SHA: %w", err)
+	}
+
+	if storedSHA == "" {
+		return "pending", nil
+	}
+
+	if !destExists {
 		return "missing dest", nil
 	}
 
