@@ -38,3 +38,7 @@ dist/
 .gemini/
 .windsurf/
 CLAUDE.md
+
+# ── Git Worktrees ─────────────────────────────────────────────────────────────
+.worktrees/
+
