@@ -55,7 +55,7 @@ func TestVendorCheck(t *testing.T) {
 	vendor.RsyncAvailable = func() bool { return false }
 	defer func() { vendor.RsyncAvailable = orig }()
 
-	if _, err := syncVendorEntry(hubRoot, v, false); err != nil {
+	if _, _, err := syncVendorEntry(hubRoot, v, false); err != nil {
 		t.Fatalf("sync failed: %v", err)
 	}
 

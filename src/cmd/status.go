@@ -487,7 +487,7 @@ func printStatusVendorHealth(w io.Writer, cfg *config.Config) error {
 
 	var synced []string
 	var missingDest []string
-	var pending []string
+	var missingProv []string
 
 	for _, v := range vendors {
 		destPath := filepath.Join(cfg.RepoPath, v.Dest)
@@ -504,11 +504,11 @@ func printStatusVendorHealth(w io.Writer, cfg *config.Config) error {
 			}
 			synced = append(synced, fmt.Sprintf("%s@%s", v.Name, shortSHA))
 		} else {
-			pending = append(pending, v.Name)
+			missingProv = append(missingProv, v.Name)
 		}
 	}
 
-	if len(missingDest) == 0 && len(pending) == 0 {
+	if len(missingDest) == 0 && len(missingProv) == 0 {
 		fmt.Fprintf(w, "  %s  Vendors: %d synced (%s)\n", iconOK, len(synced), strings.Join(synced, ", "))
 		return nil
 	}
@@ -520,16 +520,16 @@ func printStatusVendorHealth(w io.Writer, cfg *config.Config) error {
 	if len(missingDest) > 0 {
 		parts = append(parts, fmt.Sprintf("%d missing dest", len(missingDest)))
 	}
-	if len(pending) > 0 {
-		parts = append(parts, fmt.Sprintf("%d pending", len(pending)))
+	if len(missingProv) > 0 {
+		parts = append(parts, fmt.Sprintf("%d missing provenance", len(missingProv)))
 	}
 
 	fmt.Fprintf(w, "  %s  Vendors: %s\n", iconWarn, strings.Join(parts, ", "))
 	for _, name := range missingDest {
 		fmt.Fprintf(w, "     %s [%s] destination missing (run: axon vendor sync %s)\n", iconMiss, name, name)
 	}
-	for _, name := range pending {
-		fmt.Fprintf(w, "     %s [%s] pending initial sync (run: axon vendor sync %s)\n", iconMiss, name, name)
+	for _, name := range missingProv {
+		fmt.Fprintf(w, "     %s [%s] missing provenance (.axon-vendor.yaml) (run: axon vendor sync %s)\n", iconMiss, name, name)
 	}
 
 	return nil

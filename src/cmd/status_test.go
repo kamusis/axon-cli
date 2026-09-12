@@ -329,13 +329,13 @@ func TestPrintStatusVendorHealth_WithIssues(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Vendors: 1 synced, 1 missing dest, 1 pending") {
+	if !strings.Contains(out, "Vendors: 1 synced, 1 missing dest, 1 missing provenance") {
 		t.Errorf("unexpected summary line in output: %s", out)
 	}
 	if !strings.Contains(out, "[v-missing] destination missing (run: axon vendor sync v-missing)") {
 		t.Errorf("missing v-missing remediation in output: %s", out)
 	}
-	if !strings.Contains(out, "[v-pending] pending initial sync (run: axon vendor sync v-pending)") {
+	if !strings.Contains(out, "[v-pending] missing provenance (.axon-vendor.yaml) (run: axon vendor sync v-pending)") {
 		t.Errorf("missing v-pending remediation in output: %s", out)
 	}
 }

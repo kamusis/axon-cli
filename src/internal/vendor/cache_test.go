@@ -142,3 +142,35 @@ func TestSourcePath_ReturnsAbsPath_WhenValid(t *testing.T) {
 		t.Errorf("got %q, want %q", got, sub)
 	}
 }
+
+func TestRemoveVendorSHA(t *testing.T) {
+	orig := CacheRootOverride
+	CacheRootOverride = t.TempDir()
+	defer func() { CacheRootOverride = orig }()
+
+	// Deleting a non-existent file should be a silent no-op (return nil).
+	if err := RemoveVendorSHA("non-existent"); err != nil {
+		t.Fatalf("RemoveVendorSHA on non-existent: %v", err)
+	}
+
+	// Write a file, verify it exists, then remove it.
+	const sha = "abcdef1234567890"
+	if err := WriteVendorSHA("to-remove", sha); err != nil {
+		t.Fatalf("WriteVendorSHA: %v", err)
+	}
+	got, err := ReadVendorSHA("to-remove")
+	if err != nil || got != sha {
+		t.Fatalf("ReadVendorSHA before remove: got %q, err %v", got, err)
+	}
+
+	if err := RemoveVendorSHA("to-remove"); err != nil {
+		t.Fatalf("RemoveVendorSHA: %v", err)
+	}
+	gotAfter, err := ReadVendorSHA("to-remove")
+	if err != nil {
+		t.Fatalf("ReadVendorSHA after remove error: %v", err)
+	}
+	if gotAfter != "" {
+		t.Errorf("expected empty string after RemoveVendorSHA, got %q", gotAfter)
+	}
+}

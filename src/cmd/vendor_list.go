@@ -77,7 +77,7 @@ func runVendorList(_ *cobra.Command, _ []string) error {
 }
 
 // vendorSyncStatus reports the local sync health of a single vendor entry
-// without any network access: "synced (<sha>)", "pending", or "missing dest".
+// without any network access: "synced (<sha>)", "legacy (<sha>)", "pending", or "missing dest".
 func vendorSyncStatus(hubRoot string, v config.Vendor) (string, error) {
 	cleanDest, err := vendor.ValidateDest(v.Dest)
 	if err != nil {
@@ -109,5 +109,5 @@ func vendorSyncStatus(hubRoot string, v config.Vendor) (string, error) {
 		return "missing dest", nil
 	}
 
-	return fmt.Sprintf("synced (%.8s)", storedSHA), nil
+	return fmt.Sprintf("legacy (%.8s)", storedSHA), nil
 }

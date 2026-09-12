@@ -23,7 +23,7 @@ func TestVendorSyncStatus_Pending(t *testing.T) {
 	}
 }
 
-func TestVendorSyncStatus_Synced(t *testing.T) {
+func TestVendorSyncStatus_LegacyCached(t *testing.T) {
 	resetVendorCache(t)
 
 	hubRoot := t.TempDir()
@@ -41,8 +41,8 @@ func TestVendorSyncStatus_Synced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("vendorSyncStatus: %v", err)
 	}
-	if status != "synced (7d2a8f10)" {
-		t.Errorf("status = %q, want %q", status, "synced (7d2a8f10)")
+	if status != "legacy (7d2a8f10)" {
+		t.Errorf("status = %q, want %q", status, "legacy (7d2a8f10)")
 	}
 }
 

@@ -73,6 +73,7 @@ func runVendorEject(_ *cobra.Command, args []string) error {
 		provPath := filepath.Join(cfg.RepoPath, cleanDest, vendor.ProvenanceFileName)
 		_ = os.Remove(provPath)
 	}
+	_ = vendor.RemoveVendorSHA(name)
 
 	printOK(name, fmt.Sprintf("ejected from %s — files in %s preserved as first-party skill", vendor.ManifestFileName, found.Dest))
 	return nil
