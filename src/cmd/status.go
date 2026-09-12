@@ -2,14 +2,20 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/kamusis/axon-cli/internal/config"
+	"github.com/kamusis/axon-cli/internal/vendor"
 	"github.com/spf13/cobra"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 var statusCmd = &cobra.Command{
@@ -38,101 +44,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fetchFirst, _ := cmd.Flags().GetBool("fetch")
 		return showSkillStatus(cfg, args[0], fetchFirst)
 	}
-	// Sort targets alphabetically by name.
-	targets := make([]config.Target, len(cfg.Targets))
-	copy(targets, cfg.Targets)
-	sort.Slice(targets, func(i, j int) bool {
-		return targets[i].Name < targets[j].Name
-	})
 
-	printSection("Symlink Health")
-
-	type brokenEntry struct{ name, msg string }
-	type realEntry struct {
-		name   string
-		isFile bool
-	}
-	var linked, needLink []string
-	var realPaths []realEntry
-	var broken []brokenEntry
-	notInstalledMap := make(map[string]bool)
-	var notInstalled []string
-	var notInstalledCount int
-
-	for _, t := range targets {
-		dest, err := config.ExpandPath(t.Destination)
-		if err != nil {
-			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("cannot expand path: %v", err)})
-			continue
-		}
-
-		// Check parent dir first — if missing, the tool is not installed at all.
-		if isParentMissing(dest) {
-			notInstalledCount++
-			baseName := toolBaseName(t.Name)
-			if !notInstalledMap[baseName] {
-				notInstalledMap[baseName] = true
-				notInstalled = append(notInstalled, baseName)
-			}
-			continue
-		}
-
-		expected := filepath.Join(cfg.RepoPath, t.Source)
-		state, _, actualTarget, statErr := checkSymlinkState(dest, expected)
-		switch state {
-		case symlinkMissing:
-			needLink = append(needLink, t.Name)
-		case symlinkStatError:
-			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("stat error: %v", statErr)})
-		case symlinkRealEntry:
-			realPaths = append(realPaths, realEntry{name: t.Name, isFile: t.IsFile()})
-		case symlinkCorrect:
-			linked = append(linked, t.Name)
-		case symlinkWrong:
-			broken = append(broken, brokenEntry{t.Name, fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", actualTarget, expected)})
-		}
+	if _, _, _, err := printStatusSymlinkHealth(os.Stdout, cfg); err != nil {
+		return err
 	}
 
-	// Print grouped output.
-	if len(linked) > 0 {
-		printBullet("Linked (healthy symlinks):")
-		for _, s := range linked {
-			printOK(s, "OK")
-		}
+	if err := printStatusVendorHealth(os.Stdout, cfg); err != nil {
+		return err
 	}
-	if len(realPaths) > 0 {
-		printBullet("Real paths (not yet converted to symlinks):")
-		for _, r := range realPaths {
-			kind := "directory"
-			if r.isFile {
-				kind = "file"
-			}
-			printWarn(r.name, fmt.Sprintf("real %s — run 'axon link %s' to convert (original will be backed up)", kind, r.name))
-		}
-	}
-	if len(needLink) > 0 {
-		printBullet("Installed but not linked:")
-		for _, s := range needLink {
-			printMiss(s, "not linked (run: axon link "+s+")")
-		}
-	}
-	if len(broken) > 0 {
-		printBullet("Errors:")
-		for _, e := range broken {
-			printErr(e.name, e.msg)
-		}
-	}
-	if len(notInstalled) > 0 {
-		printBullet("Not installed (skipped):")
-		sort.Strings(notInstalled)
-		for _, s := range notInstalled {
-			printSkip("", s)
-		}
-	}
-
-	total := len(targets)
-	fmt.Printf("\n  %d linked / %d real path / %d not linked / %d not installed (tools) / %d error  (total: %d targets)\n",
-		len(linked), len(realPaths), len(needLink), len(notInstalled), len(broken), total)
 
 	printSection("Hub Git Status")
 	if err := checkGitAvailable(); err != nil {
@@ -281,6 +200,336 @@ func showSkillStatus(cfg *config.Config, skillName string, fetchFirst bool) erro
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// targetAssetCategory maps a target to its Hub asset category label.
+// It uses target.Source and target.Type:
+// - If t.IsFile() and source contains "rule" -> "Rules"
+// - If t.IsFile() and does not contain "rule" -> "Files"
+// - If directory and base contains "rule" -> "Rules"
+// - Otherwise -> Title-cased base of t.Source (e.g. "Skills", "Workflows", "Commands")
+func targetAssetCategory(t config.Target) string {
+	if t.IsFile() {
+		srcLower := strings.ToLower(t.Source)
+		if strings.Contains(srcLower, "rule") {
+			return "Rules"
+		}
+		return "Files"
+	}
+	base := filepath.Base(strings.TrimSpace(t.Source))
+	baseLower := strings.ToLower(base)
+	if strings.Contains(baseLower, "rule") {
+		return "Rules"
+	}
+	return cases.Title(language.Und).String(base)
+}
+
+var canonicalCategories = []string{"Skills", "Rules", "Workflows", "Commands", "Files"}
+
+// sortCategories sorts categories giving priority to canonical categories
+// (Skills, Rules, Workflows, Commands, Files), followed by any custom categories alphabetically.
+func sortCategories(cats []string) {
+	categoryWeight := func(cat string) int {
+		for i, c := range canonicalCategories {
+			if strings.EqualFold(cat, c) {
+				return i
+			}
+		}
+		return len(canonicalCategories) + 1
+	}
+
+	sort.Slice(cats, func(i, j int) bool {
+		wI, wJ := categoryWeight(cats[i]), categoryWeight(cats[j])
+		if wI != wJ {
+			return wI < wJ
+		}
+		return cats[i] < cats[j]
+	})
+}
+
+// formatTargetList formats a list of item names with comma separators and line wrapping.
+// The first line is prefixed with indentFirst, and subsequent lines with indentRest.
+func formatTargetList(names []string, indentFirst, indentRest string, maxCol int) string {
+	if len(names) == 0 {
+		return ""
+	}
+	var lines []string
+	currentLine := indentFirst
+	indentLen := utf8.RuneCountInString(indentFirst)
+
+	for i, name := range names {
+		item := name
+		if i < len(names)-1 {
+			item += ","
+		}
+
+		currentLen := utf8.RuneCountInString(currentLine)
+		itemLen := utf8.RuneCountInString(item)
+
+		if currentLen == indentLen {
+			currentLine += item
+		} else if currentLen+1+itemLen <= maxCol {
+			currentLine += " " + item
+		} else {
+			lines = append(lines, currentLine)
+			currentLine = indentRest + item
+		}
+	}
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+	return strings.Join(lines, "\n")
+}
+
+type statusIssueEntry struct {
+	name string
+	kind string // "real", "missing", "wrong", "error"
+	msg  string
+}
+
+type categoryStatus struct {
+	category string
+	healthy  []string
+	issues   []statusIssueEntry
+}
+
+// printStatusSymlinkHealth renders symlink validation results grouped by asset category.
+func printStatusSymlinkHealth(w io.Writer, cfg *config.Config) (healthyCount, installedCount, issueCount int, err error) {
+	fmt.Fprintf(w, "\n=== Symlink Health (by Asset) ===\n")
+
+	// Sort targets alphabetically by name first for determinism
+	targets := make([]config.Target, len(cfg.Targets))
+	copy(targets, cfg.Targets)
+	sort.Slice(targets, func(i, j int) bool {
+		return targets[i].Name < targets[j].Name
+	})
+
+	catMap := make(map[string]*categoryStatus)
+	var catNames []string
+	notInstalledMap := make(map[string]bool)
+	var notInstalled []string
+
+	for _, t := range targets {
+		dest, expandErr := config.ExpandPath(t.Destination)
+		if expandErr != nil {
+			cat := targetAssetCategory(t)
+			if catMap[cat] == nil {
+				catMap[cat] = &categoryStatus{category: cat}
+				catNames = append(catNames, cat)
+			}
+			catMap[cat].issues = append(catMap[cat].issues, statusIssueEntry{
+				name: t.Name,
+				kind: "error",
+				msg:  fmt.Sprintf("cannot expand path: %v", expandErr),
+			})
+			installedCount++
+			issueCount++
+			continue
+		}
+
+		// Check if the tool itself is installed
+		if isParentMissing(dest) {
+			baseName := toolBaseName(t.Name)
+			if !notInstalledMap[baseName] {
+				notInstalledMap[baseName] = true
+				notInstalled = append(notInstalled, baseName)
+			}
+			continue
+		}
+
+		installedCount++
+		cat := targetAssetCategory(t)
+		if catMap[cat] == nil {
+			catMap[cat] = &categoryStatus{category: cat}
+			catNames = append(catNames, cat)
+		}
+
+		expected := filepath.Join(cfg.RepoPath, t.Source)
+		state, _, actualTarget, statErr := checkSymlinkState(dest, expected)
+		switch state {
+		case symlinkCorrect:
+			catMap[cat].healthy = append(catMap[cat].healthy, t.Name)
+			healthyCount++
+		case symlinkMissing:
+			catMap[cat].issues = append(catMap[cat].issues, statusIssueEntry{
+				name: t.Name,
+				kind: "missing",
+				msg:  fmt.Sprintf("not linked (run: axon link %s)", t.Name),
+			})
+			issueCount++
+		case symlinkRealEntry:
+			kind := "directory"
+			if t.IsFile() {
+				kind = "file"
+			}
+			catMap[cat].issues = append(catMap[cat].issues, statusIssueEntry{
+				name: t.Name,
+				kind: "real",
+				msg:  fmt.Sprintf("real %s — run 'axon link %s' to convert (original will be backed up)", kind, t.Name),
+			})
+			issueCount++
+		case symlinkWrong:
+			catMap[cat].issues = append(catMap[cat].issues, statusIssueEntry{
+				name: t.Name,
+				kind: "wrong",
+				msg:  fmt.Sprintf("wrong target:\n      got:  %s\n      want: %s", actualTarget, expected),
+			})
+			issueCount++
+		case symlinkStatError:
+			catMap[cat].issues = append(catMap[cat].issues, statusIssueEntry{
+				name: t.Name,
+				kind: "error",
+				msg:  fmt.Sprintf("stat error: %v", statErr),
+			})
+			issueCount++
+		}
+	}
+
+	sortCategories(catNames)
+
+	var activeCategories []string
+	for _, cat := range catNames {
+		st := catMap[cat]
+		if len(st.healthy) == 0 && len(st.issues) == 0 {
+			continue
+		}
+		activeCategories = append(activeCategories, cat)
+
+		if len(st.issues) == 0 {
+			targetsWord := "targets"
+			if len(st.healthy) == 1 {
+				targetsWord = "target"
+			}
+			fmt.Fprintf(w, "\n● %s (%d %s linked):\n", cat, len(st.healthy), targetsWord)
+			fmt.Fprintln(w, formatTargetList(st.healthy, fmt.Sprintf("  %s  ", iconOK), "     ", 76))
+		} else {
+			issuesWord := "issues"
+			if len(st.issues) == 1 {
+				issuesWord = "issue"
+			}
+			fmt.Fprintf(w, "\n● %s (%d linked, %d %s):\n", cat, len(st.healthy), len(st.issues), issuesWord)
+			if len(st.healthy) > 0 {
+				fmt.Fprintln(w, formatTargetList(st.healthy, fmt.Sprintf("  %s  ", iconOK), "     ", 76))
+			}
+			for _, iss := range st.issues {
+				switch iss.kind {
+				case "real":
+					fmt.Fprintf(w, "  %s  [%s] %s\n", iconWarn, iss.name, iss.msg)
+				case "missing":
+					fmt.Fprintf(w, "  %s  [%s] %s\n", iconMiss, iss.name, iss.msg)
+				case "wrong", "error":
+					fmt.Fprintf(w, "  %s  [%s] %s\n", iconError, iss.name, iss.msg)
+				}
+			}
+		}
+	}
+
+	if len(notInstalled) > 0 {
+		sort.Strings(notInstalled)
+		fmt.Fprintf(w, "\n● Not Installed Tools (skipped):\n")
+		fmt.Fprintln(w, formatTargetList(notInstalled, fmt.Sprintf("  %s  ", iconSkip), "     ", 76))
+	}
+
+	numCats := len(activeCategories)
+	catWord := "categories"
+	if numCats == 1 {
+		catWord = "category"
+	}
+	toolsWord := "tools"
+	if len(notInstalled) == 1 {
+		toolsWord = "tool"
+	}
+
+	if installedCount == 0 {
+		if len(notInstalled) > 0 {
+			fmt.Fprintf(w, "\n  0 targets installed (%d %s not installed)\n", len(notInstalled), toolsWord)
+		} else {
+			fmt.Fprintf(w, "\n  0 targets configured\n")
+		}
+	} else if issueCount == 0 {
+		if len(notInstalled) > 0 {
+			fmt.Fprintf(w, "\n  %d/%d links healthy across %d %s (%d %s not installed)\n", healthyCount, installedCount, numCats, catWord, len(notInstalled), toolsWord)
+		} else {
+			fmt.Fprintf(w, "\n  %d/%d links healthy across %d %s\n", healthyCount, installedCount, numCats, catWord)
+		}
+	} else {
+		issuesWord := "issues"
+		if issueCount == 1 {
+			issuesWord = "issue"
+		}
+		if len(notInstalled) > 0 {
+			fmt.Fprintf(w, "\n  %d/%d links healthy, %d %s across %d %s (%d %s not installed)\n", healthyCount, installedCount, issueCount, issuesWord, numCats, catWord, len(notInstalled), toolsWord)
+		} else {
+			fmt.Fprintf(w, "\n  %d/%d links healthy, %d %s across %d %s\n", healthyCount, installedCount, issueCount, issuesWord, numCats, catWord)
+		}
+	}
+
+	return healthyCount, installedCount, issueCount, nil
+}
+
+// printStatusVendorHealth renders a summary of vendor dependencies and their local sync health.
+func printStatusVendorHealth(w io.Writer, cfg *config.Config) error {
+	fmt.Fprintf(w, "\n=== Hub Assets & Vendors ===\n")
+
+	vendors, _, err := vendor.LoadEffectiveVendors(cfg.RepoPath, cfg)
+	if err != nil {
+		fmt.Fprintf(w, "  %s  Vendors: cannot load vendors: %v\n", iconWarn, err)
+		return nil
+	}
+
+	if len(vendors) == 0 {
+		fmt.Fprintf(w, "  %s  Vendors: none configured\n", iconInfo)
+		return nil
+	}
+
+	var synced []string
+	var missingDest []string
+	var pending []string
+
+	for _, v := range vendors {
+		destPath := filepath.Join(cfg.RepoPath, v.Dest)
+		if _, statErr := os.Stat(destPath); os.IsNotExist(statErr) {
+			missingDest = append(missingDest, v.Name)
+			continue
+		}
+
+		prov, _ := vendor.ReadProvenance(destPath)
+		if prov != nil && prov.Commit != "" {
+			shortSHA := prov.Commit
+			if len(shortSHA) > 7 {
+				shortSHA = shortSHA[:7]
+			}
+			synced = append(synced, fmt.Sprintf("%s@%s", v.Name, shortSHA))
+		} else {
+			pending = append(pending, v.Name)
+		}
+	}
+
+	if len(missingDest) == 0 && len(pending) == 0 {
+		fmt.Fprintf(w, "  %s  Vendors: %d synced (%s)\n", iconOK, len(synced), strings.Join(synced, ", "))
+		return nil
+	}
+
+	var parts []string
+	if len(synced) > 0 {
+		parts = append(parts, fmt.Sprintf("%d synced", len(synced)))
+	}
+	if len(missingDest) > 0 {
+		parts = append(parts, fmt.Sprintf("%d missing dest", len(missingDest)))
+	}
+	if len(pending) > 0 {
+		parts = append(parts, fmt.Sprintf("%d pending", len(pending)))
+	}
+
+	fmt.Fprintf(w, "  %s  Vendors: %s\n", iconWarn, strings.Join(parts, ", "))
+	for _, name := range missingDest {
+		fmt.Fprintf(w, "     %s [%s] destination missing (run: axon vendor sync %s)\n", iconMiss, name, name)
+	}
+	for _, name := range pending {
+		fmt.Fprintf(w, "     %s [%s] pending initial sync (run: axon vendor sync %s)\n", iconMiss, name, name)
 	}
 
 	return nil

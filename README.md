@@ -203,7 +203,10 @@ To prevent cross-platform CRLF/LF churn, `axon init` also writes a default `.git
 
 ### `axon status`
 
-`axon status` shows symlink health and the Hub repo's local git status.
+`axon status` provides a high-signal overview of your environment:
+1. **Symlink Health (by Asset)**: Groups targets by their Hub asset category (`Skills`, `Rules`, `Workflows`, `Commands`, `Files`) with scannable multi-column listings for healthy links, actionable alerts for any misconfigured targets, and skipped uninstalled tools.
+2. **Hub Assets & Vendors**: Displays vendor dependency health, showing synced upstream commit SHAs and alerts for missing destinations or pending initial syncs.
+3. **Hub Git Status**: Shows local and remote branch tracking status (ahead/behind counts).
 
 Add `--fetch` to also fetch `origin` and show whether your local Hub branch is ahead/behind the remote default branch. If the remote is newer, run `axon sync` to pull updates.
 
