@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -159,7 +160,7 @@ func TestSyncVendorEntry_MirrorsContent(t *testing.T) {
 		Ref:    "master",
 	}
 
-	if _, err := syncVendorEntry(hubRoot, v); err != nil {
+	if _, err := syncVendorEntry(hubRoot, v, false); err != nil {
 		t.Fatalf("syncVendorEntry: %v", err)
 	}
 
@@ -170,6 +171,15 @@ func TestSyncVendorEntry_MirrorsContent(t *testing.T) {
 	}
 	if string(data) != "# Foo Skill\n" {
 		t.Errorf("unexpected content: %q", string(data))
+	}
+
+	// Verify provenance file was written
+	prov, err := vendor.ReadProvenance(filepath.Join(hubRoot, "skills", "foo"))
+	if err != nil {
+		t.Fatalf("ReadProvenance failed: %v", err)
+	}
+	if prov == nil || prov.Vendor != "foo-skill" {
+		t.Errorf("expected provenance for foo-skill, got %+v", prov)
 	}
 }
 
@@ -225,10 +235,10 @@ func TestSyncVendorEntry_SameRepoTwoSubdirs(t *testing.T) {
 	vAlpha := config.Vendor{Name: "alpha", Repo: repoDir, Subdir: "skills/alpha", Dest: "skills/alpha", Ref: "master"}
 	vBeta := config.Vendor{Name: "beta", Repo: repoDir, Subdir: "skills/beta", Dest: "skills/beta", Ref: "master"}
 
-	if _, err := syncVendorEntry(hubRoot, vAlpha); err != nil {
+	if _, err := syncVendorEntry(hubRoot, vAlpha, false); err != nil {
 		t.Fatalf("syncVendorEntry(alpha): %v", err)
 	}
-	if _, err := syncVendorEntry(hubRoot, vBeta); err != nil {
+	if _, err := syncVendorEntry(hubRoot, vBeta, false); err != nil {
 		t.Fatalf("syncVendorEntry(beta): %v", err)
 	}
 
@@ -281,7 +291,7 @@ func TestSyncVendorEntry_SubdirDeletedUpstream(t *testing.T) {
 		Ref:    "master",
 	}
 
-	_, err := syncVendorEntry(hubRoot, v)
+	_, err := syncVendorEntry(hubRoot, v, false)
 	if err == nil {
 		t.Fatal("expected error when subdir is missing upstream")
 	}
@@ -322,7 +332,7 @@ func TestSyncVendorEntry_IdempotentOnRerun(t *testing.T) {
 
 	// Run twice — should succeed both times.
 	for i := 0; i < 2; i++ {
-		if _, err := syncVendorEntry(hubRoot, v); err != nil {
+		if _, err := syncVendorEntry(hubRoot, v, false); err != nil {
 			t.Fatalf("run %d: syncVendorEntry: %v", i+1, err)
 		}
 	}
@@ -357,7 +367,7 @@ func TestSyncVendorEntry_RemirrorsWhenDestDeleted(t *testing.T) {
 		Ref:    "master",
 	}
 
-	mirrored, err := syncVendorEntry(hubRoot, v)
+	mirrored, err := syncVendorEntry(hubRoot, v, false)
 	if err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -373,7 +383,7 @@ func TestSyncVendorEntry_RemirrorsWhenDestDeleted(t *testing.T) {
 		t.Fatal("expected dest to be gone after RemoveAll")
 	}
 
-	mirrored, err = syncVendorEntry(hubRoot, v)
+	mirrored, err = syncVendorEntry(hubRoot, v, false)
 	if err != nil {
 		t.Fatalf("second sync after dest delete: %v", err)
 	}
@@ -389,3 +399,133 @@ func TestSyncVendorEntry_RemirrorsWhenDestDeleted(t *testing.T) {
 		t.Errorf("unexpected content after re-mirror: %q", string(data))
 	}
 }
+
+func TestSyncVendorEntry_DirtyGuard(t *testing.T) {
+	resetVendorCache(t)
+
+	srcRepo := makeLocalVendorRepo(t, "skills/guard", "SKILL.md", "# Guard\n")
+	hubRoot := t.TempDir()
+
+	// Initialize hubRoot as a git repository with an initial commit
+	for _, args := range [][]string{
+		{"-C", hubRoot, "init", "-b", "master"},
+		{"-C", hubRoot, "config", "user.email", "test@axon.local"},
+		{"-C", hubRoot, "config", "user.name", "Test"},
+	} {
+		cmd := exec.Command("git", args...)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("git %v failed: %v", args, err)
+		}
+	}
+
+	if err := os.Mkdir(filepath.Join(hubRoot, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := vendor.RsyncAvailable
+	vendor.RsyncAvailable = func() bool { return false }
+	defer func() { vendor.RsyncAvailable = orig }()
+
+	v := config.Vendor{
+		Name:   "guard-skill",
+		Repo:   srcRepo,
+		Subdir: "skills/guard",
+		Dest:   "skills/guard",
+		Ref:    "master",
+	}
+
+	// 1. First sync cleanly
+	if _, err := syncVendorEntry(hubRoot, v, false); err != nil {
+		t.Fatalf("first sync failed: %v", err)
+	}
+
+	// Commit the mirrored files into Hub
+	exec.Command("git", "-C", hubRoot, "add", ".").Run()
+	exec.Command("git", "-C", hubRoot, "commit", "-m", "mirrored guard-skill").Run()
+
+	// 2. Introduce an uncommitted local edit in the Hub
+	skillFile := filepath.Join(hubRoot, "skills", "guard", "SKILL.md")
+	if err := os.WriteFile(skillFile, []byte("# Local Uncommitted Edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. sync without force should abort with dirty error
+	_, err := syncVendorEntry(hubRoot, v, false)
+	if err == nil {
+		t.Fatal("expected error due to uncommitted local changes")
+	}
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Errorf("expected error mentioning 'uncommitted changes', got: %v", err)
+	}
+
+	// Verify local file was NOT overwritten
+	content, _ := os.ReadFile(skillFile)
+	if string(content) != "# Local Uncommitted Edit\n" {
+		t.Errorf("dirty file was overwritten despite guard: %s", string(content))
+	}
+
+	// 4. sync with force=true should succeed and overwrite
+	_, err = syncVendorEntry(hubRoot, v, true)
+	if err != nil {
+		t.Fatalf("sync with force failed: %v", err)
+	}
+	content, _ = os.ReadFile(skillFile)
+	if string(content) != "# Guard\n" {
+		t.Errorf("file should have been overwritten with force=true, got: %s", string(content))
+	}
+}
+
+func TestRunVendorSync_AutoMigratesLegacyVendors(t *testing.T) {
+	resetVendorCache(t)
+
+	home := t.TempDir()
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		t.Setenv(key, home)
+	}
+
+	hubRoot := filepath.Join(home, "hub")
+	if err := os.MkdirAll(filepath.Join(hubRoot, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	srcRepo := makeLocalVendorRepo(t, "skills/mig", "SKILL.md", "# Mig\n")
+
+	axonDir := filepath.Join(home, ".axon")
+	if err := os.MkdirAll(axonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgYAML := "repo_path: " + hubRoot + "\nvendors:\n" +
+		"  - name: mig-skill\n    repo: " + srcRepo + "\n    subdir: skills/mig\n    dest: skills/mig\n    ref: master\n"
+	if err := os.WriteFile(filepath.Join(axonDir, "axon.yaml"), []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := vendor.RsyncAvailable
+	vendor.RsyncAvailable = func() bool { return false }
+	defer func() { vendor.RsyncAvailable = orig }()
+
+	// Running vendor sync should auto-migrate the entry into axon.vendors.yaml
+	if err := runVendorSync(nil, nil); err != nil {
+		t.Fatalf("runVendorSync failed: %v", err)
+	}
+
+	// 1. Verify manifest exists in Hub
+	manifest, err := vendor.ReadManifest(hubRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest) != 1 || manifest[0].Name != "mig-skill" {
+		t.Fatalf("manifest = %+v, want 1 entry mig-skill", manifest)
+	}
+
+	// 2. Verify axon.yaml has vendors cleared
+	reloaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Vendors) != 0 {
+		t.Errorf("reloaded.Vendors = %+v, want empty", reloaded.Vendors)
+	}
+}
+
+

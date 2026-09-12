@@ -46,6 +46,33 @@ func TestVendorSyncStatus_Synced(t *testing.T) {
 	}
 }
 
+func TestVendorSyncStatus_Synced_FromProvenance(t *testing.T) {
+	resetVendorCache(t) // Cache has NO sha recorded (e.g. on a second machine)
+
+	hubRoot := t.TempDir()
+	destAbs := filepath.Join(hubRoot, "skills", "prov-skill")
+	if err := os.MkdirAll(destAbs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := vendor.WriteProvenance(destAbs, vendor.Provenance{
+		Vendor: "prov-skill",
+		Commit: "1234567890abcdef",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	v := config.Vendor{Name: "prov-skill", Dest: "skills/prov-skill"}
+	status, err := vendorSyncStatus(hubRoot, v)
+	if err != nil {
+		t.Fatalf("vendorSyncStatus: %v", err)
+	}
+	if status != "synced (12345678)" {
+		t.Errorf("status = %q, want %q", status, "synced (12345678)")
+	}
+}
+
+
 func TestVendorSyncStatus_MissingDest(t *testing.T) {
 	resetVendorCache(t)
 

@@ -8,7 +8,7 @@ var vendorCmd = &cobra.Command{
 	Long: `The vendor command family manages external repo/subdir content
 that is mirrored as plain files into the Hub.
 
-Vendored content is defined in the 'vendors' block of ~/.axon/axon.yaml.`,
+Vendored content is defined in the Hub's axon.vendors.yaml (or legacy ~/.axon/axon.yaml).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},

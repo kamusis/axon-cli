@@ -108,8 +108,11 @@ axon sync
 | `axon search <query>`          | Search skills/workflows/commands (keyword + semantic)     |
 | `axon inspect <skill>`         | Show metadata and structure of a skill                    |
 | `axon update`                  | Self-update axon to the latest GitHub release             |
-| `axon vendor sync [name]`      | Mirror external GitHub subdirs into the Hub               |
+| `axon vendor add <url> [dest]` | Add an external vendor to the Hub manifest                |
+| `axon vendor check`            | Check if vendored skills have upstream updates            |
+| `axon vendor eject <dest>`     | Eject a vendored skill to make it a first-party skill     |
 | `axon vendor list`             | List configured vendors and their local sync status       |
+| `axon vendor sync [name]`      | Mirror external GitHub subdirs into the Hub               |
 | `axon version`                 | Show detailed version/build/runtime info                  |
 
 Global flags:
@@ -494,29 +497,75 @@ Bootstrap note:
 - Self-update requires that the target release supports `-v/--version` for post-install verification.
 - Self-update is supported starting from `v0.2.0`. If you are on an older release, upgrade manually once to `v0.2.0` (or newer) before using `axon update`.
 
-### `axon vendor sync` — External Imports
+### `axon vendor` — External Skill & Workflow Management
 
-`axon vendor sync` allows you to populate your Hub with selected content from external GitHub repositories without the complexity of Git submodules. It clones external repos to a persistent cache (`~/.axon/cache/vendors`), performs an efficient **sparse-checkout** of the requested subdirectory, and mirrors the plain files into your Hub.
+Axon allows you to import and synchronize curated skills or workflows from external GitHub repositories into your Hub without the complexity of Git submodules.
 
-This is perfect for importing curated skills or workflows from community repositories.
+Vendors are declared in **`axon.vendors.yaml`** at the root of your Hub repository (`~/.axon/repo/axon.vendors.yaml`). Because this file lives inside the Hub Git repo, all your machines automatically share the same vendor declarations via `axon sync`.
+
+Each synced vendor directory contains a lightweight **`.axon-vendor.yaml`** provenance file tracking its upstream repository, commit SHA, branch/ref, and sync timestamp. This enables `axon list` to display `[vendor]` badges and `axon inspect` to show upstream provenance.
+
+#### `axon vendor add <url> [dest]`
+
+Add an external repository to your Hub manifest:
 
 ```bash
-# Sync all vendors configured in axon.yaml
-axon vendor sync
+# Add an entire repository as a skill
+axon vendor add https://github.com/virgiliojr94/book-to-skill.git skills/book-to-skill
 
-# Sync only one vendor entry by name (tab-completes from axon.yaml)
-axon vendor sync book-to-skill
+# Add a specific subdirectory pinned to a branch or tag
+axon vendor add https://github.com/anthropics/anthropic-quickstarts.git skills/customer-support \
+  --subdir computer-use-demo \
+  --ref v0.2.0
+
+# Add without immediately syncing
+axon vendor add https://github.com/example/skill.git skills/my-skill --no-sync
 ```
 
-**How it works:**
+#### `axon vendor sync [name]`
 
-- It uses a **force-overwrite** strategy: local changes in the Hub destination will be overwritten by the upstream source.
-- Content in the Hub is just **plain files**; no `.git` metadata from the source is imported, keeping your Hub's own Git history clean.
-- It calculates a manifest of the last-synced Git SHA for each vendor. If the SHA hasn't changed, it skips the mirror step.
+Clones/fetches external repos into a persistent cache (`~/.axon/cache/vendors`), performs an efficient sparse-checkout, and mirrors files into your Hub:
 
-#### `axon vendor list` — Inspect Sync Health
+```bash
+# Sync all configured vendors
+axon vendor sync
 
-`axon vendor list` prints every configured vendor entry with its local sync status, without touching the network — useful for spotting a failed or never-run entry before kicking off a full `axon vendor sync`.
+# Sync a specific vendor entry by name
+axon vendor sync book-to-skill
+
+# Force overwrite uncommitted local edits or re-mirror up-to-date vendor
+axon vendor sync book-to-skill --force
+```
+
+**Key behaviors:**
+- **Dirty Destination Guard**: If you made uncommitted local modifications inside a vendored directory in your Hub, `axon vendor sync` halts to prevent accidental data loss. Use `--force` to deliberately overwrite local changes.
+- **SHA-Based Skip**: If the upstream commit SHA matches the recorded in-tree `.axon-vendor.yaml`, Axon skips unnecessary re-mirroring.
+- **In-Tree Provenance**: Automatically writes `.axon-vendor.yaml` into the mirrored directory.
+- **Auto-Migration**: If you have legacy `vendors:` declared in `~/.axon/axon.yaml`, running `axon vendor sync` (or `axon vendor add`) automatically migrates them into `axon.vendors.yaml` in your Hub and removes the legacy section from `axon.yaml`.
+
+#### `axon vendor check`
+
+Checks external repositories to see if newer commits are available upstream without modifying your Hub:
+
+```bash
+axon vendor check
+```
+
+Output highlights entries that have upstream updates (`update available: <local_sha> -> <remote_sha>`), are up to date, or have never been synced.
+
+#### `axon vendor eject <dest>`
+
+Converts a vendored skill into a first-party, locally managed skill:
+
+```bash
+axon vendor eject skills/book-to-skill
+```
+
+This removes the vendor entry from `axon.vendors.yaml` and deletes `.axon-vendor.yaml` from the skill directory, leaving the actual files intact for you to customize and commit directly to your Hub.
+
+#### `axon vendor list`
+
+Prints all configured vendor entries with their local sync status, without touching the network:
 
 ```bash
 axon vendor list
@@ -529,34 +578,28 @@ cangjie-skill  skills/cangjie        main    missing dest        github.com/exam
 card-skill     skills/card-skill     v1.2    pending             github.com/example/card-skill
 ```
 
-`STATUS` is one of:
-
-- `synced (<sha>)` — last-mirrored commit, and the Hub destination still exists.
+`STATUS` values:
+- `synced (<sha>)` — last-mirrored commit, with Hub destination present and valid.
 - `pending` — this entry has never been synced.
-- `missing dest` — a commit was recorded, but the Hub destination is gone (e.g. deleted by hand); re-run `axon vendor sync <name>` to restore it.
+- `missing dest` — vendor entry configured, but destination folder is missing. Run `axon vendor sync <name>` to pull it down.
 
-#### Configuration Example
+#### `axon.vendors.yaml` Format
 
-Add a `vendors:` section to your `~/.axon/axon.yaml`:
+Located at `~/.axon/repo/axon.vendors.yaml`:
 
 ```yaml
+version: 1
 vendors:
-  - name: extra-skills
-    repo: https://github.com/someuser/cool-skills.git
-    subdir: skills/coding
-    dest: skills/coding
-    ref: main # optional, defaults to main
+  - name: book-to-skill
+    repo: https://github.com/virgiliojr94/book-to-skill.git
+    subdir: .
+    dest: skills/book-to-skill
+    ref: master
 ```
-
-- `name`: Unique identifier for the vendor entry.
-- `repo`: The Git URL of the external repository.
-- `subdir`: The directory inside the external repo you want to import. Use `"."` to sync the entire repository root.
-- `dest`: The destination path relative to your Hub root (`~/.axon/repo/`).
-- `ref`: (Optional) The Git branch, tag, or SHA to pin to.
 
 ## Configuration
 
-`~/.axon/axon.yaml` is generated automatically by `axon init`. It contains your Hub path and pre-configured targets for various AI tools. You can manually edit it to add or remove targets, or to configure **external sources** (vendors).
+`~/.axon/axon.yaml` is generated automatically by `axon init`. It contains your Hub path and pre-configured targets for various AI tools. You can manually edit it to add or remove targets, configure exclusions, or adjust sync modes.
 
 ```yaml
 repo_path: ~/.axon/repo
@@ -589,16 +632,9 @@ targets:
     source: global_rules.md
     destination: ~/.gemini/GEMINI.md
     type: file
-
-# === USER ADDED: External Sources (Optional) ===
-# These are synced via `axon vendor sync`
-vendors:
-  - name: community-skill
-    repo: https://github.com/kamusis/axon-hub.git
-    subdir: skills/community-skill
-    dest: skills/community-skill
-    ref: main
 ```
+
+> **Note on Vendors**: External repositories are configured in `axon.vendors.yaml` at the root of your Hub repository (managed via `axon vendor add`), rather than in `~/.axon/axon.yaml`. Legacy `vendors:` declarations in `axon.yaml` are automatically migrated on your next `axon vendor sync` or `axon vendor add`.
 
 The `type` field controls how each target is linked. `type: directory` (the default if omitted) symlinks a Hub directory to a tool's directory. `type: file` symlinks a single Hub file to a tool-specific filename — useful for per-editor rules files where each tool expects a different name (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, …) but the content should be shared. File-type targets are not added by `axon init`; add them yourself when you need them.
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kamusis/axon-cli/internal/config"
+	"github.com/kamusis/axon-cli/internal/vendor"
 	"github.com/spf13/cobra"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -334,6 +335,21 @@ func printInspect(itemPath, repoPath string) {
 
 	if meta.Version != "" {
 		fmt.Printf("Version:  %s\n", meta.Version)
+	}
+	if isDir {
+		if prov, _ := vendor.ReadProvenance(itemPath); prov != nil {
+			fmt.Printf("Origin:   Vendored (%s)\n", prov.Repo)
+			if prov.Subdir != "" && prov.Subdir != "." {
+				fmt.Printf("Subdir:   %s\n", prov.Subdir)
+			}
+			fmt.Printf("Ref:      %s\n", prov.Ref)
+			if prov.Commit != "" {
+				fmt.Printf("Commit:   %.8s\n", prov.Commit)
+			}
+			if !prov.SyncedAt.IsZero() {
+				fmt.Printf("Synced:   %s\n", prov.SyncedAt.Format("2006-01-02 15:04:05 UTC"))
+			}
+		}
 	}
 	if meta.Description != "" {
 		desc := strings.ReplaceAll(strings.TrimSpace(meta.Description), "\n", " ")
