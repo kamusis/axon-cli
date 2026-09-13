@@ -36,6 +36,16 @@ func runVendorEject(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot load config: %w\nRun 'axon init' first.", err)
 	}
 
+	// Auto-migrate legacy vendors if present in local axon.yaml
+	if len(cfg.Vendors) > 0 {
+		migratedCount, migErr := vendor.MigrateLegacyVendors(cfg.RepoPath, cfg)
+		if migErr != nil {
+			printWarn("", fmt.Sprintf("auto-migration of legacy vendors failed: %v", migErr))
+		} else if migratedCount > 0 {
+			printOK("", fmt.Sprintf("migrated %d legacy vendor(s) from ~/.axon/axon.yaml into %s — this will be synchronized to your remote Hub on the next 'axon sync'", migratedCount, vendor.ManifestFileName))
+		}
+	}
+
 	manifestVendors, err := vendor.ReadManifest(cfg.RepoPath)
 	if err != nil {
 		return fmt.Errorf("cannot read vendor manifest: %w", err)
@@ -56,7 +66,7 @@ func runVendorEject(_ *cobra.Command, args []string) error {
 		// Check if it's in legacy local axon.yaml
 		for _, v := range cfg.Vendors {
 			if v.Name == name {
-				return fmt.Errorf("vendor %q is in legacy ~/.axon/axon.yaml — run 'axon vendor migrate' first", name)
+				return fmt.Errorf("vendor %q is in legacy ~/.axon/axon.yaml — run 'axon vendor sync' first", name)
 			}
 		}
 		return fmt.Errorf("no vendor named %q found in %s", name, vendor.ManifestPath(cfg.RepoPath))

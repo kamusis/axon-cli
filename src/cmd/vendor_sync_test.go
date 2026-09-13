@@ -258,7 +258,7 @@ func TestSyncVendorEntry_SameRepoTwoSubdirs(t *testing.T) {
 
 // TestSyncVendorEntry_SubdirDeletedUpstream verifies that when the vendor subdir
 // no longer exists in the upstream repo, syncVendorEntry returns an actionable error
-// that guides the user to update axon.yaml — and does NOT modify the local destination.
+// that guides the user to update axon.vendors.yaml — and does NOT modify the local destination.
 func TestSyncVendorEntry_SubdirDeletedUpstream(t *testing.T) {
 	resetVendorCache(t)
 
@@ -295,8 +295,8 @@ func TestSyncVendorEntry_SubdirDeletedUpstream(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when subdir is missing upstream")
 	}
-	if !strings.Contains(err.Error(), "axon.yaml") {
-		t.Errorf("error should mention axon.yaml to guide the user, got: %v", err)
+	if !strings.Contains(err.Error(), "axon.vendors.yaml") {
+		t.Errorf("error should mention axon.vendors.yaml to guide the user, got: %v", err)
 	}
 
 	// Local destination must be completely untouched.
