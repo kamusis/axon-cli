@@ -13,7 +13,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var vendorSyncForce bool
+var (
+	vendorSyncForce   bool
+	vendorSyncVerbose bool
+)
 
 var vendorSyncCmd = &cobra.Command{
 	Use:   "sync [name]",
@@ -58,6 +61,7 @@ func completeVendorNames(_ *cobra.Command, args []string, toComplete string) ([]
 
 func init() {
 	vendorSyncCmd.Flags().BoolVarP(&vendorSyncForce, "force", "f", false, "Force sync and overwrite destination even if local uncommitted changes exist")
+	vendorSyncCmd.Flags().BoolVar(&vendorSyncVerbose, "verbose", false, "Show detailed mirroring steps and repository URLs")
 	vendorCmd.AddCommand(vendorSyncCmd)
 }
 
@@ -101,7 +105,7 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 	}
 
 	// Warn if rsync is unavailable (we'll fall back to rm+cp).
-	if _, err := exec.LookPath("rsync"); err != nil {
+	if _, err := exec.LookPath("rsync"); err != nil && vendorSyncVerbose {
 		printWarn("", "rsync not found — will use cp fallback for mirroring")
 	}
 
@@ -132,7 +136,7 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 	var failedEntries []failedEntry
 
 	for _, v := range vendors {
-		ok, provBackfilled, err := syncVendorEntry(cfg.RepoPath, v, vendorSyncForce)
+		ok, provBackfilled, err := syncVendorEntry(cfg.RepoPath, v, vendorSyncForce, vendorSyncVerbose)
 		if err != nil {
 			printErr(v.Name, "failed")
 			failed++
@@ -154,6 +158,8 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 	// Print grouped summary — always shown regardless of errors.
 	if failed > 0 {
 		printErr("", fmt.Sprintf("%d error(s), %d mirrored, %d skipped", failed, mirrored, skipped))
+	} else if mirrored == 0 && !vendorSyncVerbose {
+		printOK("", fmt.Sprintf("All %d vendor(s) are already up to date.", len(vendors)))
 	} else {
 		printOK("", fmt.Sprintf("%d mirrored, %d skipped", mirrored, skipped))
 	}
@@ -163,7 +169,7 @@ func runVendorSync(_ *cobra.Command, args []string) error {
 			printOK(name, "")
 		}
 	}
-	if len(skippedNames) > 0 {
+	if len(skippedNames) > 0 && (vendorSyncVerbose || failed > 0) {
 		printBullet("Skipped (already up to date):")
 		for _, name := range skippedNames {
 			printSkip(name, "")
@@ -236,13 +242,16 @@ func selectVendorByName(vendors []config.Vendor, name string) ([]config.Vendor, 
 // (mirrored=false, backfilled=true, nil) when .axon-vendor.yaml was backfilled,
 // (mirrored=false, backfilled=false, nil) when destination is already up to date,
 // or (false, false, err) on failure.
-func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, bool, error) {
+func syncVendorEntry(hubRoot string, v config.Vendor, force bool, verbose ...bool) (bool, bool, error) {
+	isVerbose := len(verbose) > 0 && verbose[0]
 	ref := v.Ref
 	if ref == "" {
 		ref = "main"
 	}
 
-	printInfo(v.Name, fmt.Sprintf("repo=%s subdir=%s ref=%s", v.Repo, v.Subdir, ref))
+	if isVerbose {
+		printInfo(v.Name, fmt.Sprintf("repo=%s subdir=%s ref=%s", v.Repo, v.Subdir, ref))
+	}
 
 	cleanDest, err := vendor.ValidateDest(v.Dest)
 	if err != nil {
@@ -270,7 +279,9 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, bool, e
 	// 2. Clone if not already cached.
 	alreadyCached := vendor.IsCloned(cachePath)
 	if !alreadyCached {
-		printInfo(v.Name, "cloning repository into cache…")
+		if isVerbose {
+			printInfo(v.Name, "cloning repository into cache…")
+		}
 		if err := vendor.Clone(v.Repo, cachePath); err != nil {
 			return false, false, err
 		}
@@ -281,7 +292,9 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, bool, e
 	}
 
 	// 4. Fetch latest refs.
-	printInfo(v.Name, "fetching remote refs…")
+	if isVerbose {
+		printInfo(v.Name, "fetching remote refs…")
+	}
 	if err := vendor.Fetch(cachePath); err != nil {
 		return false, false, err
 	}
@@ -331,32 +344,40 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, bool, e
 				printWarn(v.Name, fmt.Sprintf("could not write provenance: %v", err))
 			} else {
 				_ = vendor.RemoveVendorSHA(v.Name)
-				printOK(v.Name, fmt.Sprintf(
-					"already up to date (%.8s) — recorded provenance (.axon-vendor.yaml)",
-					remoteSHA,
-				))
+				if isVerbose {
+					printOK(v.Name, fmt.Sprintf(
+						"already up to date (%.8s) — recorded provenance (.axon-vendor.yaml)",
+						remoteSHA,
+					))
+				}
 				return false, true, nil
 			}
 		} else {
 			_ = vendor.RemoveVendorSHA(v.Name)
 		}
-		printOK(v.Name, fmt.Sprintf(
-			"already up to date (%.8s) — no changes in %s, skipping mirror",
-			remoteSHA, v.Subdir,
-		))
+		if isVerbose {
+			printOK(v.Name, fmt.Sprintf(
+				"already up to date (%.8s) — no changes in %s, skipping mirror",
+				remoteSHA, v.Subdir,
+			))
+		}
 		return false, false, nil
 	}
 	if force && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA && !destMissing {
-		printInfo(v.Name, fmt.Sprintf(
-			"force sync specified — re-mirroring despite unchanged SHA (%.8s)",
-			remoteSHA,
-		))
+		if isVerbose {
+			printInfo(v.Name, fmt.Sprintf(
+				"force sync specified — re-mirroring despite unchanged SHA (%.8s)",
+				remoteSHA,
+			))
+		}
 	}
 	if destMissing && storedSHA != "" && remoteSHA != "" && storedSHA == remoteSHA {
-		printInfo(v.Name, fmt.Sprintf(
-			"destination %s missing — re-mirroring despite unchanged SHA (%.8s)",
-			v.Dest, remoteSHA,
-		))
+		if isVerbose {
+			printInfo(v.Name, fmt.Sprintf(
+				"destination %s missing — re-mirroring despite unchanged SHA (%.8s)",
+				v.Dest, remoteSHA,
+			))
+		}
 	}
 
 	// 6. Ensure this subdir is included in the sparse-checkout cone.
@@ -367,7 +388,9 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, bool, e
 	}
 
 	// 7. Checkout requested ref.
-	printInfo(v.Name, fmt.Sprintf("checking out %s…", ref))
+	if isVerbose {
+		printInfo(v.Name, fmt.Sprintf("checking out %s…", ref))
+	}
 	if err := vendor.Checkout(cachePath, ref); err != nil {
 		return false, false, err
 	}
@@ -379,7 +402,9 @@ func syncVendorEntry(hubRoot string, v config.Vendor, force bool) (bool, bool, e
 	}
 
 	// 9. Mirror into Hub.
-	printInfo(v.Name, fmt.Sprintf("mirroring %s → %s…", v.Subdir, v.Dest))
+	if isVerbose {
+		printInfo(v.Name, fmt.Sprintf("mirroring %s → %s…", v.Subdir, v.Dest))
+	}
 	if err := vendor.Mirror(hubRoot, cleanDest, src); err != nil {
 		return false, false, err
 	}

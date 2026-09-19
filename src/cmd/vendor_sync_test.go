@@ -650,4 +650,54 @@ func TestSyncVendorEntry_RemovesLegacySHAUponMirror(t *testing.T) {
 	}
 }
 
+func TestVendorSyncCmd_Flags(t *testing.T) {
+	verboseFlag := vendorSyncCmd.Flags().Lookup("verbose")
+	if verboseFlag == nil {
+		t.Fatal("expected --verbose flag on vendor sync command")
+	}
+	if verboseFlag.Shorthand == "v" {
+		t.Fatal("verbose flag shorthand should not be 'v' to avoid conflict with root persistent -v/--version")
+	}
+}
+
+func TestSyncVendorEntry_VerboseArg(t *testing.T) {
+	resetVendorCache(t)
+
+	srcRepo := makeLocalVendorRepo(t, "skills/verb", "SKILL.md", "# Verb\n")
+	hubRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hubRoot, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := vendor.RsyncAvailable
+	vendor.RsyncAvailable = func() bool { return false }
+	defer func() { vendor.RsyncAvailable = orig }()
+
+	v := config.Vendor{
+		Name:   "verb-skill",
+		Repo:   srcRepo,
+		Subdir: "skills/verb",
+		Dest:   "skills/verb",
+		Ref:    "master",
+	}
+
+	// Test with verbose=true
+	mirrored, backfilled, err := syncVendorEntry(hubRoot, v, false, true)
+	if err != nil {
+		t.Fatalf("syncVendorEntry(verbose=true) failed: %v", err)
+	}
+	if !mirrored || backfilled {
+		t.Fatalf("unexpected result: mirrored=%v, backfilled=%v", mirrored, backfilled)
+	}
+
+	// Test with verbose=false on up-to-date entry
+	mirrored, backfilled, err = syncVendorEntry(hubRoot, v, false, false)
+	if err != nil {
+		t.Fatalf("syncVendorEntry(verbose=false) failed: %v", err)
+	}
+	if mirrored || backfilled {
+		t.Fatalf("expected up-to-date entry to not mirror: mirrored=%v, backfilled=%v", mirrored, backfilled)
+	}
+}
+
 
