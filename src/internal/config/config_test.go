@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -137,3 +138,26 @@ func TestEffectiveSearchRoots_AllFileTypeUsesDefaults(t *testing.T) {
 		t.Fatalf("expected fallback defaults (3 entries), got %d: %v", len(roots), roots)
 	}
 }
+
+func TestAxonDir_EnvOverride(t *testing.T) {
+	customDir := t.TempDir()
+	t.Setenv("AXON_DIR", customDir)
+
+	dir, err := AxonDir()
+	if err != nil {
+		t.Fatalf("AxonDir failed: %v", err)
+	}
+	if dir != customDir {
+		t.Errorf("AxonDir got %q, want %q", dir, customDir)
+	}
+
+	cfgPath, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath failed: %v", err)
+	}
+	wantCfgPath := filepath.Join(customDir, "axon.yaml")
+	if cfgPath != wantCfgPath {
+		t.Errorf("ConfigPath got %q, want %q", cfgPath, wantCfgPath)
+	}
+}
+

@@ -111,7 +111,7 @@ func TestSyncReadWrite_NoRemote(t *testing.T) {
 	if err := writeGitExcludes(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncReadWrite(cfg); err != nil {
+	if err := syncReadWrite(cfg, false); err != nil {
 		t.Fatalf("syncReadWrite: %v", err)
 	}
 
@@ -176,3 +176,79 @@ func TestGitIdentityConfigured_MixedLocalAndGlobalIdentity(t *testing.T) {
 		t.Fatal("expected identity to be configured when name/email come from different scopes")
 	}
 }
+
+func TestSyncReadWrite_WithRemote(t *testing.T) {
+	cfg, tmp := initTestRepo(t)
+	remoteDir := filepath.Join(tmp, "remote.git")
+	if err := gitRun("init", "--bare", remoteDir); err != nil {
+		t.Fatalf("git init bare: %v", err)
+	}
+
+	// Attach remote to local repo
+	if err := gitRun("-C", cfg.RepoPath, "remote", "add", "origin", remoteDir); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	// 1. Initial push to empty remote
+	if err := syncReadWrite(cfg, false); err != nil {
+		t.Fatalf("initial sync failed: %v", err)
+	}
+
+	// 2. Clone a second repo to simulate another machine
+	cloneDir := filepath.Join(tmp, "machine2")
+	if err := gitRun("clone", remoteDir, cloneDir); err != nil {
+		t.Fatalf("git clone: %v", err)
+	}
+	_ = gitRun("-C", cloneDir, "config", "user.email", "m2@axon.local")
+	_ = gitRun("-C", cloneDir, "config", "user.name", "Machine Two")
+
+	// Machine 2 adds a new skill and pushes it
+	m2Skill := filepath.Join(cloneDir, "skills", "remote-skill", "SKILL.md")
+	_ = os.MkdirAll(filepath.Dir(m2Skill), 0o755)
+	_ = os.WriteFile(m2Skill, []byte("# Remote Skill\n"), 0o644)
+	_ = gitRun("-C", cloneDir, "add", ".")
+	_ = gitRun("-C", cloneDir, "commit", "-m", "add remote-skill")
+	_ = gitRun("-C", cloneDir, "push", "origin", "master")
+
+	// Machine 1 (local) adds a new skill locally
+	localSkill := filepath.Join(cfg.RepoPath, "skills", "local-skill", "SKILL.md")
+	_ = os.MkdirAll(filepath.Dir(localSkill), 0o755)
+	_ = os.WriteFile(localSkill, []byte("# Local Skill\n"), 0o644)
+
+	// 3. Bidirectional sync on Machine 1
+	if err := syncReadWrite(cfg, false); err != nil {
+		t.Fatalf("bidirectional sync failed: %v", err)
+	}
+
+	// Verify remote skill was pulled locally
+	pulledSkillPath := filepath.Join(cfg.RepoPath, "skills", "remote-skill", "SKILL.md")
+	if _, err := os.Stat(pulledSkillPath); err != nil {
+		t.Errorf("remote-skill should have been pulled to local repo: %v", err)
+	}
+
+	// 4. Verify already up to date when synced again
+	if err := syncReadWrite(cfg, false); err != nil {
+		t.Fatalf("sync when up-to-date failed: %v", err)
+	}
+
+	// 5. Test read-only mode
+	// Machine 2 pulls latest and pushes another skill
+	_ = gitRun("-C", cloneDir, "pull", "--rebase", "origin", "master")
+	roSkill := filepath.Join(cloneDir, "skills", "ro-skill", "SKILL.md")
+	_ = os.MkdirAll(filepath.Dir(roSkill), 0o755)
+	_ = os.WriteFile(roSkill, []byte("# RO Skill\n"), 0o644)
+	_ = gitRun("-C", cloneDir, "add", ".")
+	_ = gitRun("-C", cloneDir, "commit", "-m", "add ro-skill")
+	_ = gitRun("-C", cloneDir, "push", "origin", "master")
+
+	cfg.SyncMode = "read-only"
+	if err := syncReadOnly(cfg, false); err != nil {
+		t.Fatalf("syncReadOnly failed: %v", err)
+	}
+
+	pulledRoPath := filepath.Join(cfg.RepoPath, "skills", "ro-skill", "SKILL.md")
+	if _, err := os.Stat(pulledRoPath); err != nil {
+		t.Errorf("ro-skill should have been pulled in read-only mode: %v", err)
+	}
+}
+

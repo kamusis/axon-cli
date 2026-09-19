@@ -193,6 +193,8 @@ Configured via `sync_mode` in `~/.axon/axon.yaml`:
 - **`read-write`** (default): `git add` → `git commit` → `git pull --rebase` → `git push`
 - **`read-only`**: `git pull --ff-only` only; warns if local edits exist
 
+During sync, Axon summarizes pulled and pushed changes by asset (`Skills`, `Rules`, `Workflows`, etc.) while suppressing noisy Git transfer logs. Use `axon sync --verbose` to inspect individual file diffs and raw Git commands.
+
 Note: when you run `axon init --upstream`, Axon writes `sync_mode: read-only` automatically (only when generating a fresh `axon.yaml`). If you later change `sync_mode` to `read-write` without switching `origin` to a repo you control, `axon sync` will typically fail at `git push` due to missing write permission. Use `axon remote set <url>` to point `origin` to your own repo before syncing in read-write mode.
 
 Axon-layer exclude patterns (from `excludes:` in `axon.yaml`) are written to `.git/info/exclude` before every sync — junk files can never reach a commit even without a `.gitignore`.
@@ -208,7 +210,7 @@ To prevent cross-platform CRLF/LF churn, `axon init` also writes a default `.git
 2. **Hub Assets & Vendors**: Displays vendor dependency health, showing synced upstream commit SHAs and alerts for missing destinations, missing in-tree provenance, or pending syncs.
 3. **Hub Git Status**: Shows local and remote branch tracking status (ahead/behind counts).
 
-Add `--fetch` to also fetch `origin` and show whether your local Hub branch is ahead/behind the remote default branch. If the remote is newer, run `axon sync` to pull updates.
+Add `--fetch` to also fetch `origin` and show whether your local Hub branch is ahead/behind the remote default branch. When remote updates or local uncommitted changes exist, Axon displays a structured breakdown of affected assets. Add `--verbose` to inspect individual file diffs and raw Git status.
 
 If `origin/HEAD` is missing, re-run `axon remote set <url>` to initialize the remote default branch reference.
 
