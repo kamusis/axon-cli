@@ -27,6 +27,7 @@ var statusCmd = &cobra.Command{
 
 func init() {
 	statusCmd.Flags().Bool("fetch", false, "Fetch remote updates for the Hub repo before showing status")
+	statusCmd.Flags().Bool("verbose", false, "Show detailed Git status output and individual file diffs")
 	rootCmd.AddCommand(statusCmd)
 }
 
@@ -60,6 +61,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	fetchFirst, _ := cmd.Flags().GetBool("fetch")
+	verbose, _ := cmd.Flags().GetBool("verbose")
 	if fetchFirst {
 		// Require a configured origin remote for fetch-based checks.
 		if _, originErr := exec.Command("git", "-C", cfg.RepoPath, "remote", "get-url", "origin").Output(); originErr != nil {
@@ -81,43 +83,97 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Remote update summary (origin-based only).
 	// We intentionally do not rely on Git's upstream tracking configuration (@{u}).
 	originHead, originHeadErr := exec.Command("git", "-C", cfg.RepoPath, "rev-parse", "--abbrev-ref", "origin/HEAD").Output()
+	var compareRef string
+	ahead := 0
+	behind := 0
+	hasRemoteTracking := false
+
 	if originHeadErr != nil {
 		if fetchFirst {
 			printWarn("", "Remote default branch not available (origin/HEAD). Re-run 'axon remote set <url>' to initialize the remote default branch reference.")
 		}
 	} else {
-		compareRef := strings.TrimSpace(string(originHead))
+		compareRef = strings.TrimSpace(string(originHead))
 		countsRaw, countsErr := exec.Command("git", "-C", cfg.RepoPath, "rev-list", "--left-right", "--count", "HEAD..."+compareRef).Output()
 		if countsErr == nil {
 			fields := strings.Fields(strings.TrimSpace(string(countsRaw)))
 			if len(fields) >= 2 {
-				ahead, aErr := strconv.Atoi(fields[0])
-				behind, bErr := strconv.Atoi(fields[1])
+				a, aErr := strconv.Atoi(fields[0])
+				b, bErr := strconv.Atoi(fields[1])
 				if aErr == nil && bErr == nil {
-					printOK("", fmt.Sprintf("Remote: %s (ahead %d / behind %d)", compareRef, ahead, behind))
-					if behind > 0 {
-						printInfo("", fmt.Sprintf("Remote is newer by %d commit(s). Run 'axon sync' to pull updates.", behind))
-					}
-					if ahead > 0 {
-						if cfg.SyncMode == "read-only" {
-							printWarn("", fmt.Sprintf("Local is newer by %d commit(s), but sync_mode is read-only so changes will not be pushed.", ahead))
-						} else {
-							printInfo("", fmt.Sprintf("Local is newer by %d commit(s). Run 'axon sync' to publish your changes.", ahead))
-						}
+					ahead = a
+					behind = b
+					hasRemoteTracking = true
+					if ahead == 0 && behind == 0 {
+						printOK("", fmt.Sprintf("Remote: %s (up to date)", compareRef))
+					} else {
+						printOK("", fmt.Sprintf("Remote: %s (ahead %d / behind %d)", compareRef, ahead, behind))
 					}
 				}
 			}
 		}
 	}
 
-	out, err := exec.Command("git", "-C", cfg.RepoPath, "-c", "advice.statusHints=false", "status").Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return fmt.Errorf("git status failed:\n%s", strings.TrimSpace(string(exitErr.Stderr)))
+	// Incoming remote changes (if behind > 0)
+	var incomingAssets []CategoryGroup
+	if behind > 0 && compareRef != "" {
+		remoteDiff, _ := gitOutput(cfg.RepoPath, "diff", "--name-status", "HEAD.."+compareRef)
+		incomingAssets = parseDiffNameStatus(remoteDiff)
+		if len(incomingAssets) > 0 {
+			commitLabel := "commit"
+			if behind > 1 {
+				commitLabel = "commits"
+			}
+			fmt.Printf("\n↓ Remote updates available (%d %s to pull):\n", behind, commitLabel)
+			printAssetCategoryGroups(os.Stdout, incomingAssets, verbose)
 		}
-		return fmt.Errorf("git status failed: %w", err)
 	}
-	fmt.Print(string(out))
+
+	// Outgoing local changes (commits ahead + working tree uncommitted)
+	var unpushedAssets []CategoryGroup
+	if ahead > 0 && compareRef != "" {
+		localCommitDiff, _ := gitOutput(cfg.RepoPath, "diff", "--name-status", compareRef, "HEAD")
+		unpushedAssets = parseDiffNameStatus(localCommitDiff)
+	}
+
+	porcelainOut, _ := gitOutput(cfg.RepoPath, "status", "--porcelain", "-u")
+	uncommittedAssets := parsePorcelainStatus(porcelainOut)
+
+	localAssets := mergeCategoryGroups(unpushedAssets, uncommittedAssets)
+	if len(localAssets) > 0 {
+		var label string
+		if ahead > 0 && len(uncommittedAssets) > 0 {
+			label = fmt.Sprintf("%d commit(s) ahead, uncommitted changes", ahead)
+		} else if ahead > 0 {
+			commitLabel := "commit"
+			if ahead > 1 {
+				commitLabel = "commits"
+			}
+			label = fmt.Sprintf("%d %s to push", ahead, commitLabel)
+		} else {
+			label = "uncommitted"
+		}
+		fmt.Printf("\n↑ Local changes (%s):\n", label)
+		printAssetCategoryGroups(os.Stdout, localAssets, verbose)
+	}
+
+	if behind == 0 && len(localAssets) == 0 {
+		if hasRemoteTracking {
+			printOK("", "Working tree clean.")
+		} else {
+			printOK("", "Working tree clean (no remote configured).")
+		}
+	} else {
+		printTip("Run 'axon sync' to synchronize changes.")
+	}
+
+	if verbose {
+		out, err := exec.Command("git", "-C", cfg.RepoPath, "-c", "advice.statusHints=false", "status").Output()
+		if err == nil {
+			fmt.Println()
+			fmt.Print(string(out))
+		}
+	}
 	return nil
 }
 

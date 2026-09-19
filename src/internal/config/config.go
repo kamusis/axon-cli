@@ -80,8 +80,11 @@ func (c *Config) EffectiveSearchRoots() []string {
 	return out
 }
 
-// AxonDir returns the absolute path to ~/.axon/.
+// AxonDir returns the absolute path to ~/.axon/ (or $AXON_DIR if set).
 func AxonDir() (string, error) {
+	if d := os.Getenv("AXON_DIR"); d != "" {
+		return filepath.Clean(d), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)

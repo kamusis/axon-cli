@@ -17,6 +17,8 @@ const (
 	iconInfo    = "~" // neutral info / state change
 	iconBackup  = "↑" // backup created
 	iconRestore = "↓" // backup restored
+	iconPush    = "↑" // pushed to remote
+	iconPull    = "↓" // pulled from remote
 	iconDir     = "+" // folder / directory
 	iconItem    = "·" // file / item (default for list items)
 )

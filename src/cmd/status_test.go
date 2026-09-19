@@ -339,3 +339,54 @@ func TestPrintStatusVendorHealth_WithIssues(t *testing.T) {
 		t.Errorf("missing v-pending remediation in output: %s", out)
 	}
 }
+
+func TestStatus_GitAssetSummary(t *testing.T) {
+	cfg, tmp := initTestRepo(t)
+	remoteDir := filepath.Join(tmp, "remote.git")
+	if err := gitRun("init", "--bare", remoteDir); err != nil {
+		t.Fatalf("git init bare: %v", err)
+	}
+	if err := gitRun("-C", cfg.RepoPath, "remote", "add", "origin", remoteDir); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+	// Initial push
+	if err := syncReadWrite(cfg, false); err != nil {
+		t.Fatalf("initial push failed: %v", err)
+	}
+
+	// Machine 2 pushes a new skill
+	cloneDir := filepath.Join(tmp, "clone")
+	if err := gitRun("clone", remoteDir, cloneDir); err != nil {
+		t.Fatalf("git clone: %v", err)
+	}
+	_ = gitRun("-C", cloneDir, "config", "user.email", "c@axon.local")
+	_ = gitRun("-C", cloneDir, "config", "user.name", "Clone")
+	rSkill := filepath.Join(cloneDir, "skills", "remote-skill", "SKILL.md")
+	_ = os.MkdirAll(filepath.Dir(rSkill), 0o755)
+	_ = os.WriteFile(rSkill, []byte("# Remote\n"), 0o644)
+	_ = gitRun("-C", cloneDir, "add", ".")
+	_ = gitRun("-C", cloneDir, "commit", "-m", "remote skill")
+	_ = gitRun("-C", cloneDir, "push", "origin", "master")
+
+	// Local machine adds an untracked skill
+	lSkill := filepath.Join(cfg.RepoPath, "skills", "local-skill", "SKILL.md")
+	_ = os.MkdirAll(filepath.Dir(lSkill), 0o755)
+	_ = os.WriteFile(lSkill, []byte("# Local\n"), 0o644)
+
+	// Fetch remote updates
+	_ = gitRun("-C", cfg.RepoPath, "fetch", "--prune", "origin")
+
+	// Verify diff calculation
+	remoteDiff, _ := gitOutput(cfg.RepoPath, "diff", "--name-status", "HEAD..origin/master")
+	incoming := parseDiffNameStatus(remoteDiff)
+	if len(incoming) != 1 || incoming[0].Assets[0].Name != "remote-skill" {
+		t.Errorf("expected remote-skill in incoming assets: %+v", incoming)
+	}
+
+	porcelain, _ := gitOutput(cfg.RepoPath, "status", "--porcelain", "-u")
+	local := parsePorcelainStatus(porcelain)
+	if len(local) != 1 || local[0].Assets[0].Name != "local-skill" {
+		t.Errorf("expected local-skill in local assets: %+v", local)
+	}
+}
+
